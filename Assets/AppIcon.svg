@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="field" x1="120" y1="68" x2="910" y2="958" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#182F63"/>
+      <stop offset="0.52" stop-color="#101D48"/>
+      <stop offset="1" stop-color="#08112E"/>
+    </linearGradient>
+    <linearGradient id="mic" x1="402" y1="262" x2="608" y2="738" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF5"/>
+      <stop offset="0.55" stop-color="#DDE9F8"/>
+      <stop offset="1" stop-color="#AFC8E9"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="276" y1="690" x2="722" y2="802" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#70E9FF"/>
+      <stop offset="1" stop-color="#6B91FF"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="22" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="54" y="54" width="916" height="916" rx="214" fill="url(#field)"/>
+  <path d="M183 820C245 874 320 906 410 916" fill="none" stroke="#6B91FF" stroke-opacity=".28" stroke-width="42" stroke-linecap="round"/>
+  <circle cx="781" cy="252" r="96" fill="#70E9FF" fill-opacity=".09"/>
+  <circle cx="781" cy="252" r="48" fill="#70E9FF" fill-opacity=".12"/>
+  <g filter="url(#glow)">
+    <rect x="399" y="234" width="226" height="398" rx="113" fill="url(#mic)"/>
+    <rect x="426" y="264" width="172" height="48" rx="24" fill="#FFFFFF" fill-opacity=".34"/>
+    <path d="M332 481V519C332 629 412 710 512 710C612 710 692 629 692 519V481" fill="none" stroke="url(#accent)" stroke-width="44" stroke-linecap="round"/>
+    <path d="M512 710V775" fill="none" stroke="url(#mic)" stroke-width="43" stroke-linecap="round"/>
+    <path d="M408 778H616" fill="none" stroke="url(#mic)" stroke-width="43" stroke-linecap="round"/>
+  </g>
+  <g fill="none" stroke="url(#accent)" stroke-width="33" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M263 678V748C263 790 297 824 339 824H415"/>
+    <path d="M761 678V748C761 790 727 824 685 824H609"/>
+    <path d="M334 748H386V800"/>
+    <path d="M690 748H638V800"/>
+  </g>
+</svg>

@@ -1,0 +1,488 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101 /* AppDelegate.swift */; };
+		B002 /* WhisperKeysApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A102 /* WhisperKeysApp.swift */; };
+		B003 /* AppModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A103 /* AppModels.swift */; };
+		B004 /* SpeechModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A104 /* SpeechModels.swift */; };
+		B005 /* TypingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A105 /* TypingModels.swift */; };
+		B006 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106 /* AppSettings.swift */; };
+		B007 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A107 /* AudioRecorder.swift */; };
+		B008 /* ModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A108 /* ModelStore.swift */; };
+		B009 /* SpeechRecognizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A109 /* SpeechRecognizing.swift */; };
+		B010 /* WhisperKitSpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A110 /* WhisperKitSpeechRecognizer.swift */; };
+		B011 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A111 /* PermissionManager.swift */; };
+		B012 /* KeyboardMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A112 /* KeyboardMapper.swift */; };
+		B013 /* KeyEventEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A113 /* KeyEventEmitter.swift */; };
+		B014 /* GlobalShortcutMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A114 /* GlobalShortcutMonitor.swift */; };
+		B015 /* TypingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115 /* TypingEngine.swift */; };
+		B016 /* DebugLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A116 /* DebugLogStore.swift */; };
+		B017 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A117 /* AppViewModel.swift */; };
+		B018 /* MenuContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A118 /* MenuContentView.swift */; };
+		B019 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A119 /* SettingsView.swift */; };
+		B021 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A081 /* WhisperKit */; };
+		B022 /* TranscriptionTextNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A123 /* TranscriptionTextNormalizer.swift */; };
+		B023 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A125 /* Assets.xcassets */; };
+		B024 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A127 /* OnboardingView.swift */; };
+		B025 /* RollingLiveHypothesis.swift in Sources */ = {isa = PBXBuildFile; fileRef = A128 /* RollingLiveHypothesis.swift */; };
+		B026 /* LiveTranscriptReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A129 /* LiveTranscriptReconciler.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A007 /* WhisperKeys.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WhisperKeys.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A101 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A102 /* WhisperKeysApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKeysApp.swift; sourceTree = "<group>"; };
+		A103 /* AppModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModels.swift; sourceTree = "<group>"; };
+		A104 /* SpeechModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechModels.swift; sourceTree = "<group>"; };
+		A105 /* TypingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingModels.swift; sourceTree = "<group>"; };
+		A106 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		A107 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		A108 /* ModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelStore.swift; sourceTree = "<group>"; };
+		A109 /* SpeechRecognizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizing.swift; sourceTree = "<group>"; };
+		A110 /* WhisperKitSpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKitSpeechRecognizer.swift; sourceTree = "<group>"; };
+		A111 /* PermissionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionManager.swift; sourceTree = "<group>"; };
+		A112 /* KeyboardMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMapper.swift; sourceTree = "<group>"; };
+		A113 /* KeyEventEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyEventEmitter.swift; sourceTree = "<group>"; };
+		A114 /* GlobalShortcutMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalShortcutMonitor.swift; sourceTree = "<group>"; };
+		A115 /* TypingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingEngine.swift; sourceTree = "<group>"; };
+		A116 /* DebugLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogStore.swift; sourceTree = "<group>"; };
+		A117 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		A118 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
+		A119 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A121 /* WhisperKeys-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "WhisperKeys-Info.plist"; sourceTree = "<group>"; };
+		A122 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A123 /* TranscriptionTextNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionTextNormalizer.swift; sourceTree = "<group>"; };
+		A124 /* WhisperKeys.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WhisperKeys.entitlements; sourceTree = "<group>"; };
+		A125 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A127 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		A128 /* RollingLiveHypothesis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RollingLiveHypothesis.swift; sourceTree = "<group>"; };
+		A129 /* LiveTranscriptReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTranscriptReconciler.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B021 /* WhisperKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A003 = {
+			isa = PBXGroup;
+			children = (
+				A010 /* App */,
+				A011 /* Models */,
+				A012 /* Settings */,
+				A013 /* Speech */,
+				A014 /* Permissions */,
+				A015 /* Keyboard */,
+				A016 /* Typing */,
+				A017 /* ViewModels */,
+				A018 /* Views */,
+				A019 /* Utilities */,
+				A121 /* WhisperKeys-Info.plist */,
+				A124 /* WhisperKeys.entitlements */,
+				A125 /* Assets.xcassets */,
+				A122 /* README.md */,
+				A006 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A006 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A007 /* WhisperKeys.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A010 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A101 /* AppDelegate.swift */,
+				A102 /* WhisperKeysApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A011 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A103 /* AppModels.swift */,
+				A104 /* SpeechModels.swift */,
+				A105 /* TypingModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A012 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A106 /* AppSettings.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		A013 /* Speech */ = {
+			isa = PBXGroup;
+			children = (
+				A107 /* AudioRecorder.swift */,
+				A108 /* ModelStore.swift */,
+				A109 /* SpeechRecognizing.swift */,
+				A110 /* WhisperKitSpeechRecognizer.swift */,
+				A128 /* RollingLiveHypothesis.swift */,
+			);
+			path = Speech;
+			sourceTree = "<group>";
+		};
+		A014 /* Permissions */ = {
+			isa = PBXGroup;
+			children = (
+				A111 /* PermissionManager.swift */,
+			);
+			path = Permissions;
+			sourceTree = "<group>";
+		};
+		A015 /* Keyboard */ = {
+			isa = PBXGroup;
+			children = (
+				A112 /* KeyboardMapper.swift */,
+				A113 /* KeyEventEmitter.swift */,
+				A114 /* GlobalShortcutMonitor.swift */,
+			);
+			path = Keyboard;
+			sourceTree = "<group>";
+		};
+		A016 /* Typing */ = {
+			isa = PBXGroup;
+			children = (
+				A115 /* TypingEngine.swift */,
+			);
+			path = Typing;
+			sourceTree = "<group>";
+		};
+		A017 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				A116 /* DebugLogStore.swift */,
+				A117 /* AppViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		A018 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A118 /* MenuContentView.swift */,
+				A119 /* SettingsView.swift */,
+				A127 /* OnboardingView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A019 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				A123 /* TranscriptionTextNormalizer.swift */,
+				A129 /* LiveTranscriptReconciler.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A002 /* WhisperKeys */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A040 /* Build configuration list for PBXNativeTarget "WhisperKeys" */;
+			buildPhases = (
+				A004 /* Sources */,
+				A005 /* Frameworks */,
+				A126 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WhisperKeys;
+			packageProductDependencies = (
+				A081 /* WhisperKit */,
+			);
+			productName = WhisperKeys;
+			productReference = A007 /* WhisperKeys.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A002 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A030 /* Build configuration list for PBXProject "WhisperKeys" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A003;
+			packageReferences = (
+				A080 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
+			);
+			productRefGroup = A006 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A002 /* WhisperKeys */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A126 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B023 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B001 /* AppDelegate.swift in Sources */,
+				B002 /* WhisperKeysApp.swift in Sources */,
+				B003 /* AppModels.swift in Sources */,
+				B004 /* SpeechModels.swift in Sources */,
+				B005 /* TypingModels.swift in Sources */,
+				B006 /* AppSettings.swift in Sources */,
+				B007 /* AudioRecorder.swift in Sources */,
+				B008 /* ModelStore.swift in Sources */,
+				B009 /* SpeechRecognizing.swift in Sources */,
+				B010 /* WhisperKitSpeechRecognizer.swift in Sources */,
+				B025 /* RollingLiveHypothesis.swift in Sources */,
+				B011 /* PermissionManager.swift in Sources */,
+				B012 /* KeyboardMapper.swift in Sources */,
+				B013 /* KeyEventEmitter.swift in Sources */,
+				B014 /* GlobalShortcutMonitor.swift in Sources */,
+				B015 /* TypingEngine.swift in Sources */,
+				B016 /* DebugLogStore.swift in Sources */,
+				B017 /* AppViewModel.swift in Sources */,
+				B018 /* MenuContentView.swift in Sources */,
+				B019 /* SettingsView.swift in Sources */,
+				B024 /* OnboardingView.swift in Sources */,
+				B022 /* TranscriptionTextNormalizer.swift in Sources */,
+				B026 /* LiveTranscriptReconciler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A031 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+			};
+			name = Debug;
+		};
+		A032 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WhisperKeys.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 8KVSDTLMFZ;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "WhisperKeys-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.j-sof.WhisperKeys";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WhisperKeys.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 8KVSDTLMFZ;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "WhisperKeys-Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.j-sof.WhisperKeys";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A030 /* Build configuration list for PBXProject "WhisperKeys" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A031 /* Debug */,
+				A032 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A040 /* Build configuration list for PBXNativeTarget "WhisperKeys" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A041 /* Debug */,
+				A042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A080 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A081 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A080 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A001 /* Project object */;
+}
