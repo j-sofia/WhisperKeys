@@ -54,8 +54,8 @@ final class AppViewModelLiveStopTests: XCTestCase {
         recognizer.detectPause()
         await fulfillment(of: [rolloverStarted], timeout: 1)
 
-        // This is the second hotkey double-tap while the first, pause-ended segment is still
-        // being finalized. It must wait instead of cancelling and losing that segment.
+        // This stop request arrives while the first, pause-ended segment is still being
+        // finalized. It must wait instead of cancelling and losing that segment.
         viewModel.stopAndTranscribe()
         await fulfillment(of: [finalizedBeforeRollover], timeout: 0.1)
 

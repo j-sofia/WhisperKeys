@@ -46,7 +46,9 @@ WhisperKeys sends modifier keys (including Shift) as their own down/up events be
 
 ### Microsoft Windows App
 
-If capital letters or shifted punctuation are lowercase in a Windows App session, open **Connections → Keyboard Mode** while connected and choose **Unicode**. The Windows App's scancode mode can drop modifiers on programmatically generated macOS key events; Unicode mode translates them correctly. WhisperKeys also uses discrete modifier transitions with a short compatibility pause to make the events reliable in VMs.
+When Windows App (`com.microsoft.rdc.macos`) is focused, WhisperKeys automatically sends the transcript through macOS System Events instead of its normal Quartz keyboard transport. This is a separate input path that preserves text capitalization when the remote client ignores synthetic modifier keystrokes. On first use, approve the macOS prompt allowing WhisperKeys to control System Events.
+
+Also open **Connections → Keyboard Mode** while connected and choose **Unicode**. Windows App's Unicode mode is designed to translate text based on the local keyboard, while Scancode is intended for physical-key shortcuts and non-printing keys.
 
 Some remote clients may still choose to ignore synthetic keyboard events. The target app or client must accept system-level keyboard input.
 

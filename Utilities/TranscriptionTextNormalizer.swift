@@ -6,8 +6,16 @@ enum TranscriptionTextNormalizer {
         autoCapitalizeFirstSentence: Bool,
         appendReturn: Bool
     ) -> String {
-        var text = TranscriptRepetitionFilter.clean(recognized)
+        var text = TranscriptRepetitionFilter.clean(
+            recognized.replacingOccurrences(
+                of: #"\s*\[BLANK_AUDIO\]\s*"#,
+                with: " ",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        )
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "" }
+
         if autoCapitalizeFirstSentence, let first = text.first {
             text.replaceSubrange(text.startIndex...text.startIndex, with: first.uppercased())
         }

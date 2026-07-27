@@ -55,6 +55,7 @@ enum TypingError: LocalizedError {
     case couldNotCreateEvent
     case keyboardLayoutUnavailable
     case unsupportedCharacter(Character)
+    case systemEventsTypingFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +67,8 @@ enum TypingError: LocalizedError {
             "macOS could not read the active keyboard layout. Switch to a standard keyboard layout and try again."
         case .unsupportedCharacter(let character):
             "The active keyboard layout cannot type “\(character)” as one key press."
+        case .systemEventsTypingFailed(let detail):
+            "Windows App compatibility typing failed. Allow WhisperKeys to control System Events in System Settings → Privacy & Security → Automation, then try again. \(detail)"
         }
     }
 }

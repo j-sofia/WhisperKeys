@@ -12,15 +12,18 @@ final class TypingEngine {
     private let typingQueue = DispatchQueue(label: "com.whisperkeys.typing", qos: .userInteractive)
     private let mapper: KeyboardMapper
     private let emitter: KeyEventEmitting
+    private let focusedTextEmitter: FocusedTextEmitting
     private let stateLock = NSLock()
     private var activeBatch: TypingBatch?
 
     init(
         mapper: KeyboardMapper = KeyboardMapper(),
-        emitter: KeyEventEmitting = CGEventKeyEmitter()
+        emitter: KeyEventEmitting = CGEventKeyEmitter(),
+        focusedTextEmitter: FocusedTextEmitting = SystemEventsTextEmitter()
     ) {
         self.mapper = mapper
         self.emitter = emitter
+        self.focusedTextEmitter = focusedTextEmitter
     }
 
     /// Replaces any text still waiting to be typed and begins a new batch.
@@ -37,12 +40,16 @@ final class TypingEngine {
     /// Returns the batch identifier so callers can distinguish its completion from an older run.
     @discardableResult
     func enqueue(_ text: String, configuration: TypingConfiguration) -> UUID? {
-        let strokes: [KeyStroke]
+        let preparedEmission: (strokes: [KeyStroke], usesFocusedTextEmitter: Bool)
         do {
+            let prepare = { () throws -> (strokes: [KeyStroke], usesFocusedTextEmitter: Bool) in
+                let strokes = try self.mapper.map(text)
+                return (strokes, self.focusedTextEmitter.shouldUseForFocusedApplication())
+            }
             if Thread.isMainThread {
-                strokes = try mapper.map(text)
+                preparedEmission = try prepare()
             } else {
-                strokes = try DispatchQueue.main.sync { try mapper.map(text) }
+                preparedEmission = try DispatchQueue.main.sync(execute: prepare)
             }
         } catch {
             // A mapping failure means this transcription can no longer be emitted safely; do
@@ -53,6 +60,7 @@ final class TypingEngine {
         }
 
         let emitter = self.emitter
+        let focusedTextEmitter = self.focusedTextEmitter
         stateLock.lock()
         let batch: TypingBatch
         if let activeBatch, !activeBatch.token.isCancelled {
@@ -65,7 +73,15 @@ final class TypingEngine {
         stateLock.unlock()
 
         typingQueue.async { [weak self] in
-            self?.perform(text: text, strokes: strokes, configuration: configuration, batch: batch, emitter: emitter)
+            self?.perform(
+                text: text,
+                strokes: preparedEmission.strokes,
+                configuration: configuration,
+                batch: batch,
+                emitter: emitter,
+                focusedTextEmitter: focusedTextEmitter,
+                usesFocusedTextEmitter: preparedEmission.usesFocusedTextEmitter
+            )
         }
         return batch.id
     }
@@ -84,7 +100,9 @@ final class TypingEngine {
         strokes: [KeyStroke],
         configuration: TypingConfiguration,
         batch: TypingBatch,
-        emitter: KeyEventEmitting
+        emitter: KeyEventEmitting,
+        focusedTextEmitter: FocusedTextEmitting,
+        usesFocusedTextEmitter: Bool
     ) {
         defer { finishOperation(in: batch) }
 
@@ -101,6 +119,25 @@ final class TypingEngine {
         } catch {
             DispatchQueue.main.async { [weak self] in self?.onError?(error) }
             cancel(batch)
+            return
+        }
+
+        if usesFocusedTextEmitter {
+            do {
+                try focusedTextEmitter.emitText(text)
+            } catch {
+                DispatchQueue.main.async { [weak self] in self?.onError?(error) }
+                cancel(batch)
+                return
+            }
+
+            guard !token.isCancelled, isCurrent(batch) else { return }
+            if onTypedBatch != nil {
+                let entries = fastLogEntries(text: text, strokes: strokes, started: started)
+                if !entries.isEmpty {
+                    DispatchQueue.main.async { [weak self] in self?.onTypedBatch?(entries) }
+                }
+            }
             return
         }
 

@@ -49,6 +49,26 @@ final class TranscriptionTextNormalizerTests: XCTestCase {
         )
     }
 
+    func testPrepareSuppressesBlankAudioPlaceholderWithoutTypingReturn() {
+        let text = TranscriptionTextNormalizer.prepare(
+            "[BLANK_AUDIO]",
+            autoCapitalizeFirstSentence: true,
+            appendReturn: true
+        )
+
+        XCTAssertEqual(text, "")
+    }
+
+    func testPrepareRemovesEmbeddedBlankAudioPlaceholder() {
+        let text = TranscriptionTextNormalizer.prepare(
+            "hello [blank_audio] world",
+            autoCapitalizeFirstSentence: false,
+            appendReturn: false
+        )
+
+        XCTAssertEqual(text, "hello world")
+    }
+
     func testPrepareAppliesCapitalizationAndReturnAfterCleanup() {
         let text = TranscriptionTextNormalizer.prepare(
             "the team shares,, knowledge",

@@ -190,7 +190,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    /// Stops microphone capture and runs local transcription. It is also used for a PTT release.
+    /// Stops microphone capture and runs local transcription.
     func stopAndTranscribe() {
         guard !isShuttingDown else { return }
         startTask?.cancel()
@@ -203,7 +203,7 @@ final class AppViewModel: ObservableObject {
             }
 
             // Do not cancel a pause rollover here. It owns the completed segment's full
-            // transcription; cancelling it would make a double-tap discard that segment.
+            // transcription; cancelling it would discard that completed segment.
             let activeRolloverTask = pauseRolloverTask
             if activeRolloverTask == nil {
                 pausedSegmentTypingBatchID = nil
@@ -419,8 +419,8 @@ final class AppViewModel: ObservableObject {
                         DispatchQueue.main.async { self?.handleLivePause() }
                     }
                 )
-                // A manual stop can change the activity to `.transcribing` while this pause
-                // rollover decodes. Keep its completed segment: the manual-stop task waits for
+                // An explicit stop can change the activity to `.transcribing` while this pause
+                // rollover decodes. Keep its completed segment: the stop task waits for
                 // us before it finalizes the successor capture.
                 guard !Task.isCancelled,
                       self.activity == .recording || self.activity == .transcribing

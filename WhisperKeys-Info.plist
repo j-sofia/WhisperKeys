@@ -28,5 +28,7 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>WhisperKeys records speech locally to transcribe it with an on-device Whisper model.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>WhisperKeys uses System Events to type into the active Windows App session when its standard keyboard events do not preserve capitalization.</string>
 </dict>
 </plist>

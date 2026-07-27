@@ -144,6 +144,56 @@ final class TypingEngineTests: XCTestCase {
             StrokeSnapshot(keyCode: 14, modifiers: [.maskShift, .maskAlternate])
         ])
     }
+
+    func testFocusedTextEmitterReplacesQuartzKeystrokesForCompatibilityTarget() {
+        let emitter = RecordingEmitter()
+        let textEmitter = RecordingFocusedTextEmitter(shouldUse: true)
+        let completed = expectation(description: "typing completes")
+        let engine = TypingEngine(
+            mapper: testMapper(for: "Hello"),
+            emitter: emitter,
+            focusedTextEmitter: textEmitter
+        )
+        engine.onCompleted = { _ in completed.fulfill() }
+
+        engine.type(
+            "Hello",
+            configuration: TypingConfiguration(
+                wordsPerMinute: 0,
+                keyDownMilliseconds: 0,
+                extraCharacterDelayMilliseconds: 0,
+                extraWordDelayMilliseconds: 0
+            )
+        )
+        wait(for: [completed], timeout: 1)
+
+        XCTAssertEqual(textEmitter.texts, ["Hello"])
+        XCTAssertTrue(emitter.events.isEmpty)
+    }
+}
+
+private final class RecordingFocusedTextEmitter: FocusedTextEmitting {
+    private let lock = NSLock()
+    private let shouldUse: Bool
+    private var recordedTexts: [String] = []
+
+    init(shouldUse: Bool) {
+        self.shouldUse = shouldUse
+    }
+
+    var texts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedTexts
+    }
+
+    func shouldUseForFocusedApplication() -> Bool { shouldUse }
+
+    func emitText(_ text: String) throws {
+        lock.lock()
+        recordedTexts.append(text)
+        lock.unlock()
+    }
 }
 
 private final class RecordingEmitter: KeyEventEmitting {

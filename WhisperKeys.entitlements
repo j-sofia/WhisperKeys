@@ -5,5 +5,8 @@
     <!-- Required by macOS for microphone/audio capture in a Hardened Runtime app. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Allows the Windows App compatibility transport to ask permission to control System Events. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>

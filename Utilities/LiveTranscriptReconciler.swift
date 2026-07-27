@@ -149,8 +149,8 @@ enum LiveTranscriptReconciler {
         // Live text is already in another application and cannot be safely replaced. After a
         // meaningful live preview, an unaligned final result is more likely a decoder revision
         // than a separate dictation, so never retype it from the beginning. Very short previews
-        // are not enough to establish that the user has received useful text, so retain the
-        // old fallback for them.
+        // are not enough to establish that the user has received useful text, so append the
+        // final transcript for them.
         return currentWords.count < minimumAlignmentWords ? append(target, to: current) : ""
     }
 

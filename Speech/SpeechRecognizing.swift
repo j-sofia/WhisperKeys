@@ -32,7 +32,7 @@ protocol LiveSpeechRecognizing: SpeechRecognizing {
     func cancelLiveTranscription() async
 }
 
-/// A manual stop can arrive while a silence rollover is decoding the segment that just ended.
+/// An explicit stop can arrive while a silence rollover is decoding the segment that just ended.
 /// The rollover owns that segment's final text, so it must complete before the successor capture
 /// is stopped and finalized. Otherwise cancelling the rollover loses the first segment entirely.
 enum LiveTranscriptionStopSequencer {

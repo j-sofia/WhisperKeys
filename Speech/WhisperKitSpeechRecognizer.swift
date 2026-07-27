@@ -334,8 +334,8 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     }
 
     /// Relative energy is excellent for suppressing repeated preview decodes, but a very short
-    /// manual dictation may stop between its rolling-baseline updates. Fall back to WhisperKit's
-    /// raw-sample VAD so an early hotkey stop does not report “no speech recognized.”
+    /// recording may stop between its rolling-baseline updates. Fall back to WhisperKit's
+    /// raw-sample VAD so an early stop does not report “no speech recognized.”
     private func containsSpeech(in samples: [Float], audioProcessor: any AudioProcessing) -> Bool {
         containsVoice(in: audioProcessor)
             || EnergyVAD(energyThreshold: 0.02).voiceActivity(in: samples).contains(true)

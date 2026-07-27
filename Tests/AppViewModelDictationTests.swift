@@ -48,7 +48,7 @@ final class AppViewModelDictationTests: XCTestCase {
         await waitUntil("recording") { harness.viewModel.activity == .recording }
 
         // This intentionally has only one hypothesis. It has not been typed live, so the test
-        // proves that an empty final decode does not discard it when the hotkey stops dictation.
+        // proves that an empty final decode does not discard it when dictation stops.
         recognizer.publishPartial("this is a substantial live ending ")
         await waitUntil("live hypothesis received") {
             harness.debugLog.recognizedText == "this is a substantial live ending"

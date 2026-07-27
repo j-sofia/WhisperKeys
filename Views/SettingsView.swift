@@ -78,7 +78,7 @@ struct SettingsView: View {
                 Stepper("Extra delay between words: \(settings.wordDelayMilliseconds) ms", value: $settings.wordDelayMilliseconds, in: 0...5_000, step: 5)
                 Toggle("Auto-capitalize first sentence", isOn: $settings.autoCapitalizeFirstSentence)
                 Toggle("Press Enter after transcription", isOn: $settings.pressEnterAfterTranscription)
-                Text("For Microsoft Windows App connections, choose Connections → Keyboard Mode → Unicode. Its scancode mode can discard synthetic Shift and Option input.")
+                Text("When Windows App is focused, WhisperKeys automatically uses macOS System Events to preserve capitalization. macOS may ask you to allow WhisperKeys to control System Events the first time. Also choose Connections → Keyboard Mode → Unicode in Windows App.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

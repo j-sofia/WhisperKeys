@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
@@ -19,6 +20,86 @@ extension KeyEventEmitting {
     func emitImmediateKeyStroke(_ stroke: KeyStroke) throws {
         try emitKeyDown(stroke)
         try emitKeyUp(stroke)
+    }
+}
+
+/// An alternate text transport for clients that discard Core Graphics keyboard events.
+///
+/// `System Events` generates input through a different macOS path from `CGEvent.post`. The
+/// Windows App recognizes that path reliably when its scancode input path loses modifiers.
+protocol FocusedTextEmitting: AnyObject {
+    /// This is queried on the main thread while the intended target still has focus.
+    func shouldUseForFocusedApplication() -> Bool
+    func emitText(_ text: String) throws
+}
+
+/// Sends text through System Events when the Microsoft Windows App is focused.
+final class SystemEventsTextEmitter: FocusedTextEmitting {
+    // Microsoft retained this bundle identifier when Remote Desktop for Mac became Windows App.
+    private static let windowsAppBundleIdentifier = "com.microsoft.rdc.macos"
+
+    func shouldUseForFocusedApplication() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.windowsAppBundleIdentifier
+    }
+
+    func emitText(_ text: String) throws {
+        guard !text.isEmpty else { return }
+        let source = SystemEventsTextScript.source(for: text)
+        guard let script = NSAppleScript(source: source) else {
+            throw TypingError.systemEventsTypingFailed("macOS could not prepare the compatibility typing script.")
+        }
+
+        var error: NSDictionary?
+        _ = script.executeAndReturnError(&error)
+        if let message = error?[NSAppleScript.errorMessage] as? String {
+            throw TypingError.systemEventsTypingFailed(message)
+        }
+    }
+}
+
+/// Builds a safe AppleScript payload without interpolating transcription text as source code.
+/// Printable text is represented by Unicode character IDs; control characters remain physical
+/// Return, Tab, and Delete key presses so the normal typing semantics are preserved.
+enum SystemEventsTextScript {
+    static func source(for text: String) -> String {
+        let commands = commands(for: text)
+        return """
+        tell application "System Events"
+        \(commands.map { "    \($0)" }.joined(separator: "\n"))
+        end tell
+        """
+    }
+
+    private static func commands(for text: String) -> [String] {
+        var commands: [String] = []
+        var printableRun = ""
+
+        func flushPrintableRun() {
+            guard !printableRun.isEmpty else { return }
+            let expression = printableRun.unicodeScalars
+                .map { "character id \($0.value)" }
+                .joined(separator: " & ")
+            commands.append("keystroke (\(expression))")
+            printableRun.removeAll(keepingCapacity: true)
+        }
+
+        for character in text {
+            switch character {
+            case "\n", "\r":
+                flushPrintableRun()
+                commands.append("key code 36") // Return
+            case "\t":
+                flushPrintableRun()
+                commands.append("key code 48") // Tab
+            case "\u{08}", "\u{7F}":
+                flushPrintableRun()
+                commands.append("key code 51") // Delete
+            default:
+                printableRun.append(character)
+            }
+        }
+        flushPrintableRun()
+        return commands
     }
 }
 
