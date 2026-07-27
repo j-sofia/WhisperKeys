@@ -299,9 +299,9 @@ final class AppViewModel: ObservableObject {
         )
     }
 
-    /// Live typing only emits completed words that agree between two consecutive hypotheses.
-    /// This keeps the in-progress text append-only: a later Whisper revision can never erase
-    /// words in the focused app.
+    /// Live typing emits only completed text shared by two consecutive hypotheses. The
+    /// reconciler rejects revisions and decoder loops so text already placed in another app is
+    /// never rewritten or repeated.
     private func handleLiveHypothesis(_ recognized: String) {
         let hypothesis = TranscriptionTextNormalizer.prepare(
             recognized,
@@ -334,8 +334,6 @@ final class AppViewModel: ObservableObject {
         activity = .typing
         // Earlier stable live text may still be waiting in the keyboard queue. Appending keeps
         // the final suffix behind it instead of cancelling it and inserting the suffix mid-text.
-        // A zero-length edit deliberately joins the queue too, so the app stays in Typing until
-        // any already queued live text has reached the focused app.
         typingBatchID = typingEngine.enqueue(edit, configuration: settings.typingConfiguration)
     }
 

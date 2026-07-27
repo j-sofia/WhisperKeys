@@ -7,6 +7,8 @@ final class AppSettings: ObservableObject {
     private enum Default {
         static let wordsPerMinute = 0
         static let customWordsPerMinute = 60
+        static let keyDownMilliseconds = 1
+        static let characterDelayMilliseconds = 5
         static let showInDock = false
     }
 
@@ -87,8 +89,8 @@ final class AppSettings: ObservableObject {
             ),
             200
         )
-        keyDownMilliseconds = hasLegacyTypingDefaults ? 0 : (savedKeyDownMilliseconds ?? 0)
-        characterDelayMilliseconds = savedCharacterDelayMilliseconds ?? 0
+        keyDownMilliseconds = hasLegacyTypingDefaults ? 0 : (savedKeyDownMilliseconds ?? Default.keyDownMilliseconds)
+        characterDelayMilliseconds = savedCharacterDelayMilliseconds ?? Default.characterDelayMilliseconds
         wordDelayMilliseconds = savedWordDelayMilliseconds ?? 0
         shortcutKeyID = defaults.string(forKey: Key.shortcutKey) ?? ShortcutKey.rightOption.rawValue
         autoCapitalizeFirstSentence = defaults.object(forKey: Key.autoCapitalize) as? Bool ?? true

@@ -17,6 +17,12 @@ enum LiveTranscriptReconciler {
         }
 
         if targetWords.count > currentWords.count {
+            let newWords = Array(targetWords.dropFirst(currentWords.count))
+            // A decoder loop can turn a valid live hypothesis into “... connect across teams
+            // and learn from one another connect across teams and learn from one another.”
+            // Do not queue that repetition in an external app. Allow a small leading fragment
+            // because looped output often includes a stray final letter from the prior phrase.
+            guard !repeatsRecentPhrase(newWords, after: currentWords) else { return nil }
             return tail(after: targetWords[currentWords.count - 1], in: target, current: current)
         }
 
@@ -26,53 +32,63 @@ enum LiveTranscriptReconciler {
         return (current.last?.isWhitespace == true ? "\u{7F}" : "") + trailingPunctuation
     }
 
-    /// Returns the remaining final transcript even if the final pass revised some live text.
-    /// Prefer the shared starting words. When the final result inserted or revised its opening,
-    /// use a multi-word suffix of live text as an anchor. If no reliable anchor remains, append
-    /// the complete final result: duplicated text is preferable to silently losing dictation.
+    private static func repeatsRecentPhrase(_ newWords: [WordToken], after currentWords: [WordToken]) -> Bool {
+        let minimumPhraseLength = 5
+        guard currentWords.count >= minimumPhraseLength, newWords.count >= minimumPhraseLength else {
+            return false
+        }
+
+        // The `s` in “another.s connect …” is a common partial-token artifact, so look just
+        // past the first couple of new words as well as at the start of the proposed append.
+        let maximumOffset = min(2, newWords.count - minimumPhraseLength)
+        for offset in 0...maximumOffset {
+            let maximumLength = min(currentWords.count, newWords.count - offset)
+            for length in stride(from: maximumLength, through: minimumPhraseLength, by: -1) {
+                let currentStart = currentWords.count - length
+                guard zip(
+                    currentWords[currentStart...],
+                    newWords[offset..<(offset + length)]
+                ).allSatisfy({ $0.key == $1.key })
+                else {
+                    continue
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Returns an append-only edit for the final transcript.
+    ///
+    /// The live preview may be word-for-word behind the final pass, in which case only its
+    /// suffix is needed. If either transcript has changed before the end of the live preview,
+    /// appending from a partial prefix or later suffix can silently omit words from the final
+    /// transcript. We cannot safely rewrite text in the focused app, so append the complete
+    /// final result in that case. A duplicate is visible and recoverable; missing dictation is
+    /// neither.
     static func finalEdit(from current: String, to target: String) -> String {
         if current.isEmpty { return target }
         if let exactEdit = liveEdit(from: current, to: target) { return exactEdit }
 
-        let currentWords = words(in: current)
         let targetWords = words(in: target)
         guard !targetWords.isEmpty else { return "" }
-
-        let prefixLength = commonPrefixLength(currentWords, targetWords)
-        if prefixLength > 0 {
-            return tail(after: targetWords[prefixLength - 1], in: target, current: current)
-        }
-
-        if let anchor = suffixAnchor(from: currentWords, in: targetWords) {
-            return tail(after: targetWords[anchor.targetEndIndex], in: target, current: current)
-        }
-
         return append(target, to: current)
-    }
-
-    private static func suffixAnchor(from current: [WordToken], in target: [WordToken]) -> Anchor? {
-        // A two-word anchor avoids treating a common word such as “the” as proof that two
-        // unrelated hypotheses are the same phrase.
-        guard current.count >= 2, target.count >= 2 else { return nil }
-
-        for length in stride(from: min(current.count, target.count), through: 2, by: -1) {
-            let suffix = current.suffix(length)
-            for startIndex in 0...(target.count - length) {
-                let candidate = target[startIndex..<(startIndex + length)]
-                guard zip(suffix, candidate).allSatisfy({ $0.key == $1.key }) else { continue }
-                return Anchor(targetEndIndex: startIndex + length - 1)
-            }
-        }
-        return nil
-    }
-
-    private static func commonPrefixLength(_ lhs: [WordToken], _ rhs: [WordToken]) -> Int {
-        zip(lhs, rhs).prefix { $0.key == $1.key }.count
     }
 
     private static func tail(after word: WordToken, in target: String, current: String) -> String {
         var tail = String(target[word.range.upperBound...])
         guard !tail.isEmpty else { return "" }
+
+        // Tokens exclude punctuation, so a live update such as "share, " and a final update
+        // such as "share, and solve" both leave the target tail beginning with a comma. Do not
+        // retype punctuation already sent to the focused app; that was the source of `share,,`
+        // in final output.
+        let currentWithoutTrailingWhitespace = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        let leadingPunctuation = String(tail.prefix { $0.isPunctuation })
+        if !leadingPunctuation.isEmpty,
+           currentWithoutTrailingWhitespace.hasSuffix(leadingPunctuation) {
+            tail.removeFirst(leadingPunctuation.count)
+        }
 
         if current.last?.isWhitespace == true {
             if tail.first?.isWhitespace == true {
@@ -118,8 +134,4 @@ private struct WordToken {
     var key: String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
-}
-
-private struct Anchor {
-    let targetEndIndex: Int
 }

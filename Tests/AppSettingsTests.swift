@@ -17,6 +17,9 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.wordsPerMinute, 0)
         XCTAssertEqual(settings.customWordsPerMinute, 60)
         XCTAssertTrue(settings.usesFastestTypingSpeed)
+        XCTAssertEqual(settings.keyDownMilliseconds, 1)
+        XCTAssertEqual(settings.characterDelayMilliseconds, 5)
+        XCTAssertFalse(settings.typingConfiguration.isFastest)
         XCTAssertEqual(settings.appearance, .system)
         XCTAssertFalse(settings.showInDock)
     }

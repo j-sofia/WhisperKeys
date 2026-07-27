@@ -23,6 +23,16 @@ struct MenuContentView: View {
             Button("Stop Dictation") { viewModel.stopAndTranscribe() }
                 .disabled(viewModel.activity != .recording)
 
+            if viewModel.activity == .recording,
+               !viewModel.debugLog.recognizedText.isEmpty {
+                Divider()
+                Text(viewModel.debugLog.recognizedText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .frame(maxWidth: 280, alignment: .leading)
+            }
+
             if viewModel.activity == .typing || viewModel.activity == .transcribing {
                 Button("Cancel Current Operation") { viewModel.cancelCurrentOperation() }
             }
