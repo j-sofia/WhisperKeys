@@ -19,8 +19,29 @@ extension SpeechRecognizing {
 protocol LiveSpeechRecognizing: SpeechRecognizing {
     func startLiveTranscription(
         model: WhisperModel,
-        onPartialTranscription: @escaping @Sendable (String) -> Void
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
     ) async throws
+    /// Starts a new live capture before returning the completed transcript from the previous
+    /// segment. The caller can keep listening while it transcribes and types that segment.
+    func rolloverLiveTranscription(
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
+    ) async throws -> String
     func stopAndFinalizeLiveTranscription() async throws -> String
     func cancelLiveTranscription() async
+}
+
+/// A manual stop can arrive while a silence rollover is decoding the segment that just ended.
+/// The rollover owns that segment's final text, so it must complete before the successor capture
+/// is stopped and finalized. Otherwise cancelling the rollover loses the first segment entirely.
+enum LiveTranscriptionStopSequencer {
+    static func finalize(
+        after rolloverTask: Task<Void, Never>?,
+        using recognizer: any LiveSpeechRecognizing
+    ) async throws -> String {
+        await rolloverTask?.value
+        try Task.checkCancellation()
+        return try await recognizer.stopAndFinalizeLiveTranscription()
+    }
 }

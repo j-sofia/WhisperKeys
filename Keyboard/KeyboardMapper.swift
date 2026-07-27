@@ -15,6 +15,15 @@ final class KeyboardMapper {
         (UInt32(optionKey >> 8), .maskAlternate),
         (UInt32((shiftKey | optionKey) >> 8), [.maskShift, .maskAlternate])
     ]
+    private let layoutProvider: () throws -> any KeyboardLayoutTranslating
+
+    /// The provider defaults to the user's current layout. Supplying one is useful for
+    /// deterministic verification of layout-dependent mappings.
+    init(layoutProvider: @escaping () throws -> any KeyboardLayoutTranslating = {
+        try KeyboardLayout.current()
+    }) {
+        self.layoutProvider = layoutProvider
+    }
 
     /// Captures the current input source once. This must run on the main thread because the
     /// Text Input Source APIs can trap when called from the background typing queue.
@@ -22,7 +31,7 @@ final class KeyboardMapper {
         guard !text.isEmpty else { return [] }
         dispatchPrecondition(condition: .onQueue(.main))
 
-        let layout = try KeyboardLayout.current()
+        let layout = try layoutProvider()
         let strokesByCharacter = makeStrokeMap(using: layout)
         return try text.map { character in
             if let special = specialStroke(for: character) {
@@ -49,7 +58,7 @@ final class KeyboardMapper {
     }
 
     /// Searches the layout once per transcription rather than once per character.
-    private func makeStrokeMap(using layout: KeyboardLayout) -> [String: KeyStroke] {
+    private func makeStrokeMap(using layout: any KeyboardLayoutTranslating) -> [String: KeyStroke] {
         var strokesByCharacter: [String: KeyStroke] = [:]
         strokesByCharacter.reserveCapacity(256)
         for keyCode in CGKeyCode(0)...CGKeyCode(127) {
@@ -66,9 +75,17 @@ final class KeyboardMapper {
     }
 }
 
+/// The portion of a keyboard-layout snapshot used by `KeyboardMapper`.
+///
+/// Keeping this boundary small lets the mapper be exercised against a known layout without
+/// consulting the host machine's input source.
+protocol KeyboardLayoutTranslating {
+    func translatedCharacter(for keyCode: CGKeyCode, modifierState: UInt32) -> String?
+}
+
 /// A retained, immutable `uchr` keyboard-layout snapshot. Holding a copy prevents a layout
 /// change from invalidating the pointer while `UCKeyTranslate` is iterating over key codes.
-private struct KeyboardLayout {
+private struct KeyboardLayout: KeyboardLayoutTranslating {
     private let data: CFData
     private let keyboardType: UInt32
 

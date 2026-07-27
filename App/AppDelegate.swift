@@ -23,6 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        viewModel?.shutdown()
+        dockVisibilityObservation?.cancel()
+        dockVisibilityObservation = nil
+    }
+
     func configure(viewModel: AppViewModel) {
         self.viewModel = viewModel
         configure(settings: viewModel.settings)

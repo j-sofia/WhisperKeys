@@ -14,6 +14,8 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     private var partialTranscriptionTask: Task<Void, Never>?
     private var livePreviewStartSample = 0
     private var rollingLiveHypothesis = RollingLiveHypothesis()
+    private var livePauseDetector = LivePauseDetector()
+    private var areLivePreviewsSuspended = false
 
     /// Keep each preview below Whisper's 30-second decoder window. Every handoff retains a
     /// substantial overlap, which lets `RollingLiveHypothesis` produce a continuous hypothesis
@@ -35,30 +37,64 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     }
 
     /// Starts recording through WhisperKit's 16 kHz audio processor and begins recognizing
-    /// snapshots while the user is still speaking. The final pass always uses the complete
-    /// captured buffer, so partial hypotheses never affect text that is typed.
+    /// snapshots while the user is still speaking. Each completed segment later receives a full
+    /// buffer pass to reconcile its live preview.
     func startLiveTranscription(
         model: WhisperModel,
-        onPartialTranscription: @escaping @Sendable (String) -> Void
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
     ) async throws {
         guard liveWhisperKit == nil else { throw SpeechError.liveTranscriptionInProgress }
 
         let whisperKit = try await pipeline(for: model, allowingDownload: false)
-        resetLivePreviewState()
-        try whisperKit.audioProcessor.startRecordingLive(callback: nil)
-        liveWhisperKit = whisperKit
+        areLivePreviewsSuspended = false
+        try startLiveCapture(
+            with: whisperKit,
+            onPartialTranscription: onPartialTranscription,
+            onPauseDetected: onPauseDetected
+        )
+    }
 
-        partialTranscriptionTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 500_000_000)
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                await self?.publishPartialTranscription(onPartialTranscription)
-            }
+    /// Ends the current segment on a detected pause, starts recording its successor immediately,
+    /// then returns the finalized text for the segment that ended. Recording and final decoding
+    /// can therefore overlap without losing the user's first words after the pause.
+    func rolloverLiveTranscription(
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
+    ) async throws -> String {
+        guard let whisperKit = liveWhisperKit else { throw SpeechError.noRecording }
+
+        whisperKit.audioProcessor.stopRecording()
+        let previousPartialTask = partialTranscriptionTask
+        partialTranscriptionTask = nil
+        previousPartialTask?.cancel()
+        let capturedSamples = Array(whisperKit.audioProcessor.audioSamples)
+        guard !capturedSamples.isEmpty,
+              containsSpeech(in: capturedSamples, audioProcessor: whisperKit.audioProcessor)
+        else {
+            areLivePreviewsSuspended = false
+            try startLiveCapture(
+                with: whisperKit,
+                onPartialTranscription: onPartialTranscription,
+                onPauseDetected: onPauseDetected
+            )
+            throw SpeechError.emptyTranscription
         }
+        let samples = capturedSamples
+
+        // Start capture before waiting for the cancelled preview to return. The next segment is
+        // therefore recorded immediately, while its preview decoding stays suspended until this
+        // segment's final decoder pass is complete.
+        areLivePreviewsSuspended = true
+        try startLiveCapture(
+            with: whisperKit,
+            onPartialTranscription: onPartialTranscription,
+            onPauseDetected: onPauseDetected
+        )
+        await previousPartialTask?.value
+        defer { areLivePreviewsSuspended = false }
+        let results = try await transcribeLongForm(samples, with: whisperKit)
+        return try text(from: results)
     }
 
     /// Stops live capture, waits for any in-flight preview, and makes one final full-buffer
@@ -69,16 +105,15 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
         whisperKit.audioProcessor.stopRecording()
         liveWhisperKit = nil
 
-        let partialTask = partialTranscriptionTask
-        partialTranscriptionTask = nil
-        partialTask?.cancel()
-        await partialTask?.value
+        await stopPartialTranscriptionTask()
+        areLivePreviewsSuspended = false
 
-        let samples = Array(whisperKit.audioProcessor.audioSamples)
-        guard !samples.isEmpty else { throw SpeechError.emptyTranscription }
-        guard containsVoice(in: whisperKit.audioProcessor) else {
+        let capturedSamples = Array(whisperKit.audioProcessor.audioSamples)
+        guard !capturedSamples.isEmpty else { throw SpeechError.emptyTranscription }
+        guard containsSpeech(in: capturedSamples, audioProcessor: whisperKit.audioProcessor) else {
             throw SpeechError.emptyTranscription
         }
+        let samples = capturedSamples
         resetLivePreviewState()
         let results = try await transcribeLongForm(samples, with: whisperKit)
         return try text(from: results)
@@ -87,8 +122,8 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     func cancelLiveTranscription() async {
         liveWhisperKit?.audioProcessor.stopRecording()
         liveWhisperKit = nil
-        partialTranscriptionTask?.cancel()
-        partialTranscriptionTask = nil
+        await stopPartialTranscriptionTask()
+        areLivePreviewsSuspended = false
         resetLivePreviewState()
     }
 
@@ -169,7 +204,8 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     }
 
     private func publishPartialTranscription(
-        _ onPartialTranscription: @escaping @Sendable (String) -> Void
+        _ onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
     ) async {
         guard let whisperKit = liveWhisperKit else { return }
         let samples = Array(whisperKit.audioProcessor.audioSamples)
@@ -177,7 +213,18 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
         // familiar-looking hallucinations such as “thank you.” The UI still receives previews
         // every half second as soon as one second of audio with detected voice is captured.
         guard samples.count >= WhisperKit.sampleRate else { return }
-        guard containsVoice(in: whisperKit.audioProcessor) else { return }
+        // Checking the complete recording here makes every later silent poll look like speech
+        // once the user has talked at least once. Decode previews only while the recent audio is
+        // active; otherwise Whisper can repeatedly supply familiar silence phrases such as
+        // “thank you.” The final pass still checks the complete capture below.
+        guard containsRecentVoice(in: whisperKit.audioProcessor) else {
+            if livePauseDetector.registerSilence() {
+                onPauseDetected()
+            }
+            return
+        }
+        livePauseDetector.registerVoice()
+        guard !areLivePreviewsSuspended else { return }
 
         do {
             let previewStart = nextLivePreviewStart(for: samples.count)
@@ -212,6 +259,38 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     private func resetLivePreviewState() {
         livePreviewStartSample = 0
         rollingLiveHypothesis.reset()
+        livePauseDetector.reset()
+    }
+
+    private func startLiveCapture(
+        with whisperKit: WhisperKit,
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
+    ) throws {
+        resetLivePreviewState()
+        try whisperKit.audioProcessor.startRecordingLive(callback: nil)
+        liveWhisperKit = whisperKit
+        partialTranscriptionTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await self?.publishPartialTranscription(
+                    onPartialTranscription,
+                    onPauseDetected: onPauseDetected
+                )
+            }
+        }
+    }
+
+    private func stopPartialTranscriptionTask() async {
+        let partialTask = partialTranscriptionTask
+        partialTranscriptionTask = nil
+        partialTask?.cancel()
+        await partialTask?.value
     }
 
     /// Long recordings are split at detected silence before decoding. Decode each chunk
@@ -252,5 +331,55 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     /// treating a preview or final pass as speech.
     private func containsVoice(in audioProcessor: any AudioProcessing) -> Bool {
         audioProcessor.relativeEnergy.contains { $0.isFinite && $0 > 0.3 }
+    }
+
+    /// Relative energy is excellent for suppressing repeated preview decodes, but a very short
+    /// manual dictation may stop between its rolling-baseline updates. Fall back to WhisperKit's
+    /// raw-sample VAD so an early hotkey stop does not report “no speech recognized.”
+    private func containsSpeech(in samples: [Float], audioProcessor: any AudioProcessing) -> Bool {
+        containsVoice(in: audioProcessor)
+            || EnergyVAD(energyThreshold: 0.02).voiceActivity(in: samples).contains(true)
+    }
+
+    private func containsRecentVoice(in audioProcessor: any AudioProcessing) -> Bool {
+        LiveVoiceActivity.containsRecentVoice(in: audioProcessor.relativeEnergy)
+    }
+}
+
+/// Each live relative-energy reading covers one 100 ms input buffer. Preview transcription only
+/// needs a short, recent slice; final transcription separately considers the entire recording.
+enum LiveVoiceActivity {
+    static func containsRecentVoice(
+        in relativeEnergy: [Float],
+        recentFrameCount: Int = 20,
+        threshold: Float = 0.3
+    ) -> Bool {
+        relativeEnergy.suffix(max(1, recentFrameCount)).contains {
+            $0.isFinite && $0 > threshold
+        }
+    }
+
+}
+
+/// Reports a single pause after live speech becomes silent. It ignores startup silence and stays
+/// quiet until voice resumes, so one pause produces one segment rollover.
+struct LivePauseDetector {
+    private var hasDetectedVoice = false
+    private var hasReportedPause = false
+
+    mutating func registerVoice() {
+        hasDetectedVoice = true
+        hasReportedPause = false
+    }
+
+    mutating func registerSilence() -> Bool {
+        guard hasDetectedVoice, !hasReportedPause else { return false }
+        hasReportedPause = true
+        return true
+    }
+
+    mutating func reset() {
+        hasDetectedVoice = false
+        hasReportedPause = false
     }
 }

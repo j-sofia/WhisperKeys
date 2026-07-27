@@ -17,6 +17,8 @@ final class AppViewModel: ObservableObject {
     private let recognizer: SpeechRecognizing
     private let typingEngine: TypingEngine
     private let shortcutMonitor: GlobalShortcutMonitor
+    private let requestMicrophonePermission: () async -> Bool
+    private let accessibilityPermissionState: () -> PermissionState
     private let startSound = NSSound(named: NSSound.Name("Tink"))
     private let stopSound = NSSound(named: NSSound.Name("Pop"))
     private var transcriptionTask: Task<Void, Never>?
@@ -25,6 +27,11 @@ final class AppViewModel: ObservableObject {
     private var liveTypedText = ""
     private var previousLiveHypothesis = ""
     private var typingBatchID: UUID?
+    private var pauseRolloverTask: Task<Void, Never>?
+    private var pausedSegmentTypingBatchID: UUID?
+    private var defersNextSegmentTyping = false
+    private var pendingLivePause = false
+    private var isShuttingDown = false
 
     init() {
         self.settings = AppSettings()
@@ -35,6 +42,10 @@ final class AppViewModel: ObservableObject {
         self.shortcutMonitor = GlobalShortcutMonitor()
         self.debugLog = DebugLogStore()
         self.modelStore = ModelStore()
+        self.requestMicrophonePermission = { [permissions] in
+            await permissions.requestMicrophone()
+        }
+        self.accessibilityPermissionState = { [permissions] in permissions.accessibility }
 
         configureCallbacks()
     }
@@ -47,7 +58,9 @@ final class AppViewModel: ObservableObject {
         typingEngine: TypingEngine,
         shortcutMonitor: GlobalShortcutMonitor,
         debugLog: DebugLogStore,
-        modelStore: ModelStore
+        modelStore: ModelStore,
+        requestMicrophonePermission: (() async -> Bool)? = nil,
+        accessibilityPermissionState: (() -> PermissionState)? = nil
     ) {
         self.settings = settings
         self.permissions = permissions
@@ -57,16 +70,24 @@ final class AppViewModel: ObservableObject {
         self.shortcutMonitor = shortcutMonitor
         self.debugLog = debugLog
         self.modelStore = modelStore
+        self.requestMicrophonePermission = requestMicrophonePermission ?? { [permissions] in
+            await permissions.requestMicrophone()
+        }
+        self.accessibilityPermissionState = accessibilityPermissionState ?? { [permissions] in
+            permissions.accessibility
+        }
 
         configureCallbacks()
     }
 
     private func configureCallbacks() {
         typingEngine.onCompleted = { [weak self] batchID in
-            guard let self,
-                  self.activity == .typing,
-                  self.typingBatchID == batchID
-            else { return }
+            guard let self else { return }
+            if self.pausedSegmentTypingBatchID == batchID {
+                self.pausedSegmentTypingBatchID = nil
+                self.resumeNextSegmentTyping()
+            }
+            guard self.activity == .typing, self.typingBatchID == batchID else { return }
             self.typingBatchID = nil
             self.activity = .idle
         }
@@ -101,6 +122,7 @@ final class AppViewModel: ObservableObject {
 
     func restartShortcutMonitor() {
         shortcutMonitor.stop()
+        guard !isShuttingDown else { return }
         guard settings.shortcutKey != .disabled else { return }
         do {
             try shortcutMonitor.start(shortcutKey: settings.shortcutKey)
@@ -111,15 +133,16 @@ final class AppViewModel: ObservableObject {
     }
 
     func startDictation() {
+        guard !isShuttingDown else { return }
         cancelCurrentTypingAndRecognition()
         startTask?.cancel()
         startTask = Task { [weak self] in
             guard let self else { return }
-            guard await self.permissions.requestMicrophone(), !Task.isCancelled else {
+            guard await self.requestMicrophonePermission(), !Task.isCancelled else {
                 if !Task.isCancelled { self.activity = .error("Microphone permission is required.") }
                 return
             }
-            guard self.permissions.accessibility == .granted else {
+            guard self.accessibilityPermissionState() == .granted else {
                 self.permissions.requestAccessibility()
                 self.activity = .error("Allow Accessibility, then start dictation again.")
                 return
@@ -132,9 +155,11 @@ final class AppViewModel: ObservableObject {
                         model: self.settings.selectedModel,
                         onPartialTranscription: { [weak self] transcription in
                             DispatchQueue.main.async {
-                                guard let self, self.activity == .recording else { return }
-                                self.handleLiveHypothesis(transcription)
+                                self?.receiveLivePartial(transcription)
                             }
+                        },
+                        onPauseDetected: { [weak self] in
+                            DispatchQueue.main.async { self?.handleLivePause() }
                         }
                     )
                     if Task.isCancelled {
@@ -167,6 +192,7 @@ final class AppViewModel: ObservableObject {
 
     /// Stops microphone capture and runs local transcription. It is also used for a PTT release.
     func stopAndTranscribe() {
+        guard !isShuttingDown else { return }
         startTask?.cancel()
         startTask = nil
 
@@ -176,16 +202,36 @@ final class AppViewModel: ObservableObject {
                 return
             }
 
+            // Do not cancel a pause rollover here. It owns the completed segment's full
+            // transcription; cancelling it would make a double-tap discard that segment.
+            let activeRolloverTask = pauseRolloverTask
+            if activeRolloverTask == nil {
+                pausedSegmentTypingBatchID = nil
+                defersNextSegmentTyping = false
+                pendingLivePause = false
+            }
             stopSound?.play()
             activity = .transcribing
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let recognized = try await liveRecognizer.stopAndFinalizeLiveTranscription()
+                    let recognized = try await LiveTranscriptionStopSequencer.finalize(
+                        after: activeRolloverTask,
+                        using: liveRecognizer
+                    )
                     guard !Task.isCancelled else { return }
                     self.finishLiveTranscription(recognized)
                 } catch is CancellationError {
                     if self.activity == .transcribing { self.activity = .idle }
+                } catch SpeechError.emptyTranscription {
+                    if let fallback = LiveTranscriptReconciler.fallbackFinalTranscript(
+                        lastHypothesis: self.previousLiveHypothesis,
+                        liveTypedText: self.liveTypedText
+                    ) {
+                        self.finishLiveTranscription(fallback)
+                    } else if self.activity == .transcribing {
+                        self.activity = .idle
+                    }
                 } catch {
                     self.debugLog.setError(error)
                     self.activity = .error(error.localizedDescription)
@@ -225,6 +271,11 @@ final class AppViewModel: ObservableObject {
         startTask = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        pauseRolloverTask?.cancel()
+        pauseRolloverTask = nil
+        pausedSegmentTypingBatchID = nil
+        defersNextSegmentTyping = false
+        pendingLivePause = false
         if let liveRecognizer = recognizer as? any LiveSpeechRecognizing {
             Task { await liveRecognizer.cancelLiveTranscription() }
         } else if activity == .recording {
@@ -234,6 +285,17 @@ final class AppViewModel: ObservableObject {
         typingBatchID = nil
         resetLiveTypingState()
         activity = .idle
+    }
+
+    /// Stops every input/output path before AppKit tears the process down. In particular, a
+    /// queued global-shortcut action must not be allowed to start a new capture while quitting.
+    func shutdown() {
+        guard !isShuttingDown else { return }
+        isShuttingDown = true
+        shortcutMonitor.stop()
+        startSound?.stop()
+        stopSound?.stop()
+        cancelCurrentOperation()
     }
 
     func installSelectedModel() {
@@ -276,6 +338,11 @@ final class AppViewModel: ObservableObject {
         typingBatchID = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        pauseRolloverTask?.cancel()
+        pauseRolloverTask = nil
+        pausedSegmentTypingBatchID = nil
+        defersNextSegmentTyping = false
+        pendingLivePause = false
         if let liveRecognizer = recognizer as? any LiveSpeechRecognizing {
             Task { await liveRecognizer.cancelLiveTranscription() }
         } else if activity == .recording {
@@ -299,9 +366,8 @@ final class AppViewModel: ObservableObject {
         )
     }
 
-    /// Live typing emits only completed text shared by two consecutive hypotheses. The
-    /// reconciler rejects revisions and decoder loops so text already placed in another app is
-    /// never rewritten or repeated.
+    /// Live typing emits only completed text shared by two consecutive hypotheses. A confirmed
+    /// revision can backspace and replace the changed suffix; decoder loops are still rejected.
     private func handleLiveHypothesis(_ recognized: String) {
         let hypothesis = TranscriptionTextNormalizer.prepare(
             recognized,
@@ -310,9 +376,70 @@ final class AppViewModel: ObservableObject {
         )
         debugLog.setRecognized(hypothesis)
 
-        let stableText = completeWords(in: commonPrefix(previousLiveHypothesis, hypothesis))
+        let stableText = LiveTranscriptReconciler.textForLiveUpdate(
+            previousHypothesis: previousLiveHypothesis,
+            currentHypothesis: hypothesis,
+            hasTypedText: !liveTypedText.isEmpty
+        )
         previousLiveHypothesis = hypothesis
         appendLiveText(to: stableText)
+    }
+
+    private func receiveLivePartial(_ transcription: String) {
+        guard activity == .recording, !defersNextSegmentTyping else { return }
+        handleLiveHypothesis(transcription)
+    }
+
+    /// A pause ends one dictation segment without changing the listening state. The recognizer
+    /// starts capturing the next segment before this task decodes the prior one, while live
+    /// output for that new segment waits until the prior segment's final text is fully typed.
+    private func handleLivePause() {
+        guard activity == .recording else { return }
+        guard !defersNextSegmentTyping else {
+            pendingLivePause = true
+            return
+        }
+        guard pauseRolloverTask == nil,
+              let liveRecognizer = recognizer as? any LiveSpeechRecognizing
+        else {
+            return
+        }
+
+        defersNextSegmentTyping = true
+        pauseRolloverTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let recognized = try await liveRecognizer.rolloverLiveTranscription(
+                    onPartialTranscription: { [weak self] transcription in
+                        DispatchQueue.main.async { self?.receiveLivePartial(transcription) }
+                    },
+                    onPauseDetected: { [weak self] in
+                        DispatchQueue.main.async { self?.handleLivePause() }
+                    }
+                )
+                // A manual stop can change the activity to `.transcribing` while this pause
+                // rollover decodes. Keep its completed segment: the manual-stop task waits for
+                // us before it finalizes the successor capture.
+                guard !Task.isCancelled,
+                      self.activity == .recording || self.activity == .transcribing
+                else {
+                    return
+                }
+                self.enqueuePausedSegmentFinalText(recognized)
+            } catch is CancellationError {
+                if self.activity == .recording { self.resumeNextSegmentTyping() }
+            } catch SpeechError.emptyTranscription {
+                // A noise-only segment should not interrupt the next recording.
+                if self.activity == .recording { self.resumeNextSegmentTyping() }
+            } catch {
+                self.debugLog.setError(error)
+                self.activity = .error(error.localizedDescription)
+            }
+            self.pauseRolloverTask = nil
+            if self.activity == .recording, !self.defersNextSegmentTyping {
+                self.resumeNextSegmentTyping()
+            }
+        }
     }
 
     private func finishLiveTranscription(_ recognized: String) {
@@ -337,6 +464,38 @@ final class AppViewModel: ObservableObject {
         typingBatchID = typingEngine.enqueue(edit, configuration: settings.typingConfiguration)
     }
 
+    private func enqueuePausedSegmentFinalText(_ recognized: String) {
+        let prepared = TranscriptionTextNormalizer.prepare(
+            recognized,
+            autoCapitalizeFirstSentence: settings.autoCapitalizeFirstSentence,
+            appendReturn: false
+        )
+        debugLog.setRecognized(prepared)
+
+        let edit = liveTypedText.isEmpty
+            ? prepared
+            : LiveTranscriptReconciler.finalEdit(from: liveTypedText, to: prepared)
+        resetLiveTypingState()
+
+        pausedSegmentTypingBatchID = typingEngine.enqueue(
+            segmentBoundaryEdit(edit),
+            configuration: settings.typingConfiguration
+        )
+        if pausedSegmentTypingBatchID == nil {
+            resumeNextSegmentTyping()
+        }
+    }
+
+    private func resumeNextSegmentTyping() {
+        defersNextSegmentTyping = false
+        guard pendingLivePause else { return }
+        guard pauseRolloverTask == nil else { return }
+        pendingLivePause = false
+        // The recognizer reported a pause while the prior segment was still being typed.
+        // Start its rollover now that the next segment is allowed to make progress.
+        handleLivePause()
+    }
+
     private func appendLiveText(to stableText: String) {
         guard !stableText.isEmpty else { return }
 
@@ -344,17 +503,21 @@ final class AppViewModel: ObservableObject {
         if liveTypedText.isEmpty {
             edit = stableText
         } else {
-            // Do not fall back to a character-level replacement during recording. A rough
-            // hypothesis is allowed to be incomplete, never to delete or alter text already
-            // placed in another app.
-            guard let appendOnlyEdit = LiveTranscriptReconciler.liveEdit(from: liveTypedText, to: stableText) else {
+            guard let liveEdit = LiveTranscriptReconciler.liveEdit(from: liveTypedText, to: stableText) else {
                 return
             }
-            edit = appendOnlyEdit
+            edit = liveEdit
         }
         guard !edit.isEmpty else { return }
         liveTypedText = stableText
         typingEngine.enqueue(edit, configuration: settings.typingConfiguration)
+    }
+
+    /// An automatic pause keeps dictation continuous, so make the boundary explicit even when
+    /// Whisper's finalized segment has no trailing whitespace or punctuation.
+    private func segmentBoundaryEdit(_ edit: String) -> String {
+        guard !edit.isEmpty else { return " " }
+        return edit.last?.isWhitespace == true ? edit : edit + " "
     }
 
     private func resetLiveTypingState() {
@@ -362,17 +525,8 @@ final class AppViewModel: ObservableObject {
         previousLiveHypothesis = ""
     }
 
-    /// Drops a possibly incomplete final word from a common partial-transcription prefix.
-    private func completeWords(in text: String) -> String {
-        guard let finalWhitespace = text.lastIndex(where: \.isWhitespace) else { return "" }
-        return String(text[...finalWhitespace])
-    }
-
-    private func commonPrefix(_ lhs: String, _ rhs: String) -> String {
-        String(zip(lhs, rhs).prefix { $0 == $1 }.map(\.0))
-    }
-
     private func handleShortcut() {
+        guard !isShuttingDown else { return }
         activity == .recording ? stopAndTranscribe() : startDictation()
     }
 

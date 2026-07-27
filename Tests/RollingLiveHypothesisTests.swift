@@ -27,14 +27,14 @@ final class RollingLiveHypothesisTests: XCTestCase {
         )
     }
 
-    func testUnmatchedHandoffKeepsPreviousHypothesisUntilAStableHandoffIsAvailable() {
+    func testUnmatchedHandoffCommitsThePreviousPreviewSoLiveTypingCanKeepMoving() {
         var hypothesis = RollingLiveHypothesis()
 
         _ = hypothesis.update("one two three four", windowAdvanced: false)
 
         XCTAssertEqual(
             hypothesis.update("five six seven eight", windowAdvanced: true),
-            "one two three four"
+            "one two three four five six seven eight"
         )
     }
 
@@ -50,26 +50,32 @@ final class RollingLiveHypothesisTests: XCTestCase {
         )
     }
 
-    func testSingleWordOverlapIsNotEnoughToCommitAWindowHandoff() {
+    func testSingleWordOverlapAvoidsDuplicatingTheBoundaryWordDuringFallback() {
         var hypothesis = RollingLiveHypothesis()
 
         _ = hypothesis.update("one two three common", windowAdvanced: false)
 
         XCTAssertEqual(
             hypothesis.update("common words begin a different sentence", windowAdvanced: true),
-            "one two three common"
+            "one two three common words begin a different sentence"
         )
     }
 
-    func testUnmatchedHandoffCanRecoverWhenANewerWindowOverlapsThePreviousOne() {
+    func testLongTranscriptionContinuesAfterAnUnmatchedWindowHandoff() {
         var hypothesis = RollingLiveHypothesis()
 
-        _ = hypothesis.update("zero one two three four", windowAdvanced: false)
-        _ = hypothesis.update("unrelated partial result", windowAdvanced: true)
+        let opening = "Testing out Whisper Keys again this is a test of a really long input"
+        let delayedPreview = "I basically have to keep typing until the hypothesis text stops predicting"
+        let nextPreview = "typing until the hypothesis text stops predicting or guessing at what I said and typing in real time"
+
+        _ = hypothesis.update(opening, windowAdvanced: false)
+        _ = hypothesis.update(delayedPreview, windowAdvanced: true)
 
         XCTAssertEqual(
-            hypothesis.update("three four five six seven", windowAdvanced: true),
-            "zero one two three four five six seven"
+            hypothesis.update(nextPreview, windowAdvanced: true),
+            "Testing out Whisper Keys again this is a test of a really long input "
+                + "I basically have to keep typing until the hypothesis text stops predicting "
+                + "or guessing at what I said and typing in real time"
         )
     }
 

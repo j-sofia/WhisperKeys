@@ -24,10 +24,17 @@ struct RollingLiveHypothesis {
         // Keep enough shared text at the handoff that an ordinary Whisper revision does not
         // make the caller's full hypothesis jump backwards. One matching word is too easy to
         // find accidentally (for example, "the"), so wait for a short phrase.
-        guard let overlap = longestOverlap(from: pending, to: incoming), overlap >= 2 else {
-            return renderedText
+        let overlap = longestOverlap(from: pending, to: incoming) ?? 0
+        if overlap < 2 {
+            // A preview can take longer than the advance interval on slower machines. In that
+            // case the next result may already start beyond the previous result's useful
+            // overlap, or Whisper may revise the overlap completely. Retaining `pending` here
+            // would make every later advanced window compare against stale text and live typing
+            // would stop until the final pass. Keep moving forward instead; the caller still
+            // waits for two matching hypotheses before emitting text to the focused app.
+            // A single matched word is not strong enough to make this a normal handoff, but
+            // it is enough to avoid duplicating that exact boundary word in the fallback.
         }
-
         confirmed.append(contentsOf: pending.dropLast(overlap))
         pending = incoming
         return renderedText
