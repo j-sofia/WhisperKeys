@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static private(set) var shared: AppDelegate?
 
     private var dockVisibilityObservation: AnyCancellable?
+    private var appearanceObservation: AnyCancellable?
     private var activityObservation: AnyCancellable?
     private weak var viewModel: AppViewModel?
     private var onboardingWindow: NSWindow?
@@ -32,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         viewModel?.shutdown()
         dockVisibilityObservation?.cancel()
         dockVisibilityObservation = nil
+        appearanceObservation?.cancel()
+        appearanceObservation = nil
         activityObservation?.cancel()
         activityObservation = nil
     }
@@ -49,6 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .sink { [weak self] isVisible in
                 self?.setDockVisibility(isVisible)
             }
+
+        appearanceObservation = settings.$appearanceID
+            .removeDuplicates()
+            .sink { [weak self] appearanceID in
+                let appearance = AppAppearance(rawValue: appearanceID) ?? .system
+                self?.applyAppearance(appearance)
+            }
     }
 
     private func configureMenuBarItem(with viewModel: AppViewModel) {
@@ -64,14 +74,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
             menuPopover.behavior = .transient
             menuPopover.animates = true
-            menuPopover.contentSize = NSSize(width: 280, height: 330)
+            menuPopover.contentSize = NSSize(width: 294, height: 360)
             menuPopover.contentViewController = NSHostingController(
-                rootView: MenuContentView(viewModel: viewModel)
+                rootView: MenuContentView(viewModel: viewModel) { [weak self, weak viewModel] in
+                    self?.menuPopover.performClose(nil)
+                    viewModel?.startDictation()
+                }
             )
 
             onboardingTipPopover.behavior = .transient
             onboardingTipPopover.animates = true
-            onboardingTipPopover.contentSize = NSSize(width: 320, height: 132)
+            onboardingTipPopover.contentSize = NSSize(width: 326, height: 142)
         }
 
         activityObservation = viewModel.$activity
@@ -86,8 +99,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let button = statusItem?.button else { return }
         let symbolName: String
         switch activity {
-        case .recording: symbolName = "record.circle.fill"
-        case .transcribing, .typing, .installingModel: symbolName = "ellipsis.circle.fill"
+        case .recording: symbolName = "mic.fill"
+        case .transcribing, .typing, .installingModel: symbolName = "waveform.circle.fill"
         case .error: symbolName = "exclamationmark.triangle.fill"
         case .idle: symbolName = "waveform"
         }
@@ -195,13 +208,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 650),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 700),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Welcome to WhisperKeys"
         window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentView = NSHostingView(
@@ -254,6 +269,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func setDockVisibility(_ isVisible: Bool) {
         NSApplication.shared.setActivationPolicy(isVisible ? .regular : .accessory)
     }
+
+    /// Applying System clears the override, so existing AppKit and SwiftUI windows
+    /// immediately inherit the macOS appearance again.
+    private func applyAppearance(_ appearance: AppAppearance) {
+        switch appearance {
+        case .system:
+            NSApplication.shared.appearance = nil
+        case .light:
+            NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 private struct OnboardingMenuBarTip: View {
@@ -261,14 +289,10 @@ private struct OnboardingMenuBarTip: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "menubar.rectangle")
-                .font(.system(size: 23, weight: .semibold))
-                .foregroundStyle(.tint)
-                .frame(width: 38, height: 38)
-                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            BrandAppIcon(size: 40, cornerRadius: 10)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("WhisperKeys lives here")
+                Text("You’re all set")
                     .font(.headline)
                 Text(instructions)
                     .font(.subheadline)
@@ -277,8 +301,7 @@ private struct OnboardingMenuBarTip: View {
             }
         }
         .padding(16)
-        .frame(width: 320, alignment: .leading)
-        .preferredColorScheme(settings.appearance.colorScheme)
+        .frame(width: 326, alignment: .leading)
     }
 
     private var instructions: String {

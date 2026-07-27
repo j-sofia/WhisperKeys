@@ -28,32 +28,17 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
 
-            Group {
-                switch step {
-                case .welcome:
-                    welcomePage
-                case .model:
-                    modelPage
-                case .shortcut:
-                    shortcutPage
-                case .preferences:
-                    preferencesPage
-                case .permissions:
-                    permissionsPage
-                case .tryIt:
-                    tryItPage
-                }
-            }
+            onboardingPage
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(32)
+            .padding(.horizontal, 38)
+            .padding(.vertical, 30)
 
             Divider()
             footer
         }
-        .frame(width: 640, height: 650)
-        .background(.background)
+        .frame(width: 700, height: 700)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             permissions.refresh()
             settings.refreshStartAtLoginStatus()
@@ -99,66 +84,99 @@ struct OnboardingView: View {
         } message: {
             Text("WhisperKeys will restart, re-detect its current permission status, and return to this exact page. It will not change any macOS permission settings.")
         }
-        .preferredColorScheme(settings.appearance.colorScheme)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 16) {
             HStack(spacing: 12) {
-                Image(systemName: step.symbolName)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.tint)
-                    .frame(width: 42, height: 42)
-                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                BrandAppIcon(size: 40, cornerRadius: 10)
+
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("WhisperKeys Setup")
-                        .font(.headline)
-                    Text(step.title)
+                    Text("WhisperKeys")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Text("Setup assistant")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+
                 Spacer()
-                Text("\(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 7) {
+                    Image(systemName: step.symbolName)
+                        .font(.caption.weight(.bold))
+                    Text("\(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(.primary.opacity(0.055), in: Capsule())
             }
 
             HStack(spacing: 6) {
                 ForEach(OnboardingStep.allCases, id: \.self) { page in
                     Capsule()
-                        .fill(page.rawValue <= step.rawValue ? Color.accentColor : Color.secondary.opacity(0.18))
-                        .frame(height: 4)
+                        .fill(page.rawValue <= step.rawValue ? Color.accentColor : Color.primary.opacity(0.11))
+                        .frame(height: 5)
+                        .animation(.easeInOut(duration: 0.25), value: step)
                 }
             }
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 22)
+        .padding(.horizontal, 38)
+        .padding(.top, 24)
+        .padding(.bottom, 20)
+        .background(.ultraThinMaterial)
+    }
+
+    @ViewBuilder
+    private var onboardingPage: some View {
+        switch step {
+        case .welcome:
+            welcomePage
+        case .model:
+            modelPage
+        case .shortcut:
+            shortcutPage
+        case .preferences:
+            preferencesPage
+        case .permissions:
+            permissionsPage
+        case .tryIt:
+            tryItPage
+        }
     }
 
     private var welcomePage: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Dictation that stays on your Mac.")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .center, spacing: 20) {
+                BrandAppIcon(size: 78, cornerRadius: 19)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Dictation that stays on your Mac.")
+                        .font(.system(size: 31, weight: .bold, design: .rounded))
+                    Text("A quiet, local-first way to turn your voice into text wherever you work.")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
-            Text("WhisperKeys listens when you ask it to, transcribes with a local Whisper model, and types into whichever app has focus.")
-                .font(.title3)
+            Text("WhisperKeys listens only when you ask it to, transcribes with a local Whisper model, and types into the app you already have open.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: 14) {
-                FeatureRow(icon: "lock.fill", title: "Local transcription", detail: "Your recordings and recognized text stay on this Mac.")
-                FeatureRow(icon: "keyboard", title: "Types where you are", detail: "Works with native apps, remote desktops, and focused text fields.")
-                FeatureRow(icon: "waveform", title: "Ready when you are", detail: "Use the menu bar or your chosen double-tap shortcut.")
+            VStack(alignment: .leading, spacing: 4) {
+                FeatureRow(icon: "lock.fill", title: "Private by design", detail: "Your recordings and recognized text stay on this Mac.")
+                FeatureRow(icon: "keyboard", title: "Works where you work", detail: "Dictate into native apps, remote desktops, and focused text fields.")
+                FeatureRow(icon: "waveform", title: "Always within reach", detail: "Use the menu bar or a double-tap shortcut when inspiration strikes.")
             }
-            .padding(18)
-            .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
+            .padding(10)
+            .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 
     private var modelPage: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Choose a local model")
-                .font(.title.bold())
+            OnboardingPageTitle("Choose a local model", eyebrow: "PERFORMANCE & PRIVACY")
             Text("The model is downloaded once, then dictation runs locally. Tiny is a good first choice; you can change models later in Settings.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -179,25 +197,24 @@ struct OnboardingView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(16)
-                .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else if modelWasInstalled {
                 Label("\(settings.selectedModel.displayName) is ready to use.", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .padding(16)
-                    .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .padding(16)
+                .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else if case .error(let message) = viewModel.activity {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                    .padding(16)
-                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .padding(16)
+                .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
     }
 
     private var shortcutPage: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Choose your shortcut")
-                .font(.title.bold())
+            OnboardingPageTitle("Choose your shortcut", eyebrow: "ACTIVATION")
             Text("Double-tap the selected modifier key to start or stop dictation. The original key press is never blocked.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -221,8 +238,7 @@ struct OnboardingView: View {
 
     private var preferencesPage: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Make it feel like yours")
-                .font(.title.bold())
+            OnboardingPageTitle("Make it feel like yours", eyebrow: "PREFERENCES")
             Text("These choices can be changed at any time in Settings.")
                 .foregroundStyle(.secondary)
 
@@ -258,14 +274,13 @@ struct OnboardingView: View {
                 .pickerStyle(.segmented)
             }
             .padding(18)
-            .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
+            .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
     private var permissionsPage: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Allow WhisperKeys to work")
-                .font(.title.bold())
+            OnboardingPageTitle("Allow WhisperKeys to work", eyebrow: "PERMISSIONS")
             Text("Permissions are required only for the features that use them. You can continue now and approve any of them later in Settings.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -327,21 +342,26 @@ struct OnboardingView: View {
 
     private var tryItPage: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Try it out")
-                .font(.title.bold())
+            OnboardingPageTitle("Try it out", eyebrow: "ONE LAST THING")
             Text(practiceInstructions)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextEditor(text: $practiceText)
-                .font(.body)
-                .focused($practiceFieldIsFocused)
-                .padding(8)
-                .frame(minHeight: 180)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.quaternary, lineWidth: 1)
-                }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("PRACTICE PAD")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.8)
+                TextEditor(text: $practiceText)
+                    .font(.body)
+                    .focused($practiceFieldIsFocused)
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .frame(minHeight: 165)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .padding(10)
+            .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             HStack(spacing: 12) {
                 Button {
@@ -400,8 +420,9 @@ struct OnboardingView: View {
                     .buttonStyle(.borderedProminent)
             }
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, 38)
         .padding(.vertical, 18)
+        .background(.ultraThinMaterial)
     }
 
     private var startAtLoginBinding: Binding<Bool> {
@@ -493,15 +514,18 @@ private struct FeatureRow: View {
     let detail: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 13) {
             Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.tint)
-                .frame(width: 20)
+                .frame(width: 30, height: 30)
+                .background(.tint.opacity(0.11), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).fontWeight(.semibold)
-                Text(detail).foregroundStyle(.secondary)
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
             }
         }
+        .padding(8)
     }
 }
 
@@ -531,6 +555,31 @@ private struct PermissionSetupRow: View {
             }
         }
         .padding(14)
-        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+        .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
+}
+
+private struct OnboardingPageTitle: View {
+    let title: String
+    let eyebrow: String
+
+    init(_ title: String, eyebrow: String) {
+        self.title = title
+        self.eyebrow = eyebrow
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(eyebrow)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.tint)
+                .tracking(1)
+            Text(title)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+        }
+    }
+}
+
+private var onboardingSurface: Color {
+    Color(nsColor: .controlBackgroundColor).opacity(0.74)
 }

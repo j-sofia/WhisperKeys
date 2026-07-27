@@ -214,7 +214,6 @@ struct SettingsView: View {
         } message: {
             Text("Restart the app to ensure the changed Accessibility or Input Monitoring permission is applied.")
         }
-        .preferredColorScheme(settings.appearance.colorScheme)
     }
 
     private var fastestTypingSpeedBinding: Binding<Bool> {

@@ -4,11 +4,13 @@ import SwiftUI
 struct MenuContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject private var settings: AppSettings
+    private let onStartDictation: () -> Void
     @State private var isStatusAnimating = false
 
-    init(viewModel: AppViewModel) {
+    init(viewModel: AppViewModel, onStartDictation: (() -> Void)? = nil) {
         self.viewModel = viewModel
         _settings = ObservedObject(wrappedValue: viewModel.settings)
+        self.onStartDictation = onStartDictation ?? { viewModel.startDictation() }
     }
 
     var body: some View {
@@ -16,54 +18,50 @@ struct MenuContentView: View {
             header
 
             Divider()
-                .padding(.vertical, 14)
+                .padding(.vertical, 10)
 
             primaryAction
 
             if viewModel.activity == .recording,
                !viewModel.debugLog.recognizedText.isEmpty {
                 liveTranscript
-                    .padding(.top, 12)
+                    .padding(.top, 10)
             }
 
             if viewModel.activity == .installingModel {
                 installationProgress
-                    .padding(.top, 12)
+                    .padding(.top, 10)
             }
 
             Divider()
-                .padding(.vertical, 14)
+                .padding(.vertical, 10)
 
             shortcutCard
 
             VStack(spacing: 0) {
                 popoverRow(
-                    "Settings…",
+                    "Open Settings",
                     symbol: "gearshape",
                     action: AppDelegate.presentSettings
                 )
 
                 Divider()
-                    .padding(.leading, 30)
+                    .padding(.leading, settingsContentInset)
 
-                Toggle("Start at Login", isOn: startAtLoginBinding)
-                    .toggleStyle(.switch)
-                    .padding(.vertical, 10)
+                compactToggleRow("Start at Login", isOn: startAtLoginBinding)
 
                 Divider()
-                    .padding(.leading, 30)
+                    .padding(.leading, settingsContentInset)
 
-                Toggle("Show in Dock", isOn: $settings.showInDock)
-                    .toggleStyle(.switch)
-                    .padding(.top, 10)
+                compactToggleRow("Show in Dock", isOn: $settings.showInDock)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 2)
             .background(surfaceFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .padding(.top, 12)
+            .padding(.top, 10)
 
             Divider()
-                .padding(.vertical, 14)
+                .padding(.vertical, 10)
 
             Button(role: .destructive) {
                 NSApplication.shared.terminate(nil)
@@ -75,31 +73,34 @@ struct MenuContentView: View {
             .foregroundStyle(.secondary)
             .keyboardShortcut("q")
         }
-        .padding(16)
-        .frame(width: 326, alignment: .leading)
+        .padding(12)
+        .frame(width: 294, alignment: .leading)
         .onAppear {
             settings.refreshStartAtLoginStatus()
             isStatusAnimating = viewModel.activity == .recording
         }
         .onChange(of: viewModel.activity) { _, activity in
-            withAnimation(.easeInOut(duration: 0.8).repeatCount(activity == .recording ? .max : 1, autoreverses: true)) {
-                isStatusAnimating = activity == .recording
-            }
+            isStatusAnimating = activity == .recording
         }
-        .preferredColorScheme(settings.appearance.colorScheme)
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ZStack {
                 Circle()
                     .fill(status.color.opacity(0.16))
-                    .frame(width: 46, height: 46)
+                    .frame(width: 38, height: 38)
                     .scaleEffect(isStatusAnimating ? 1.15 : 1)
                 Image(systemName: status.symbol)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(status.color)
             }
+            .animation(
+                isStatusAnimating
+                    ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                    : .default,
+                value: isStatusAnimating
+            )
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -108,6 +109,7 @@ struct MenuContentView: View {
                 Text(status.title)
                     .font(.subheadline)
                     .foregroundStyle(status.color)
+                    .lineLimit(2)
             }
 
             Spacer()
@@ -142,12 +144,19 @@ struct MenuContentView: View {
                 .padding(.vertical, 11)
                 .padding(.horizontal, 14)
                 .background(surfaceFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        case .idle, .error:
+        case .idle:
             actionButton(
-                viewModel.activity == .error ? "Try Dictation Again" : "Start Dictation",
+                "Start Dictation",
                 symbol: "mic.fill",
                 tint: .accentColor,
-                action: viewModel.startDictation
+                action: onStartDictation
+            )
+        case .error:
+            actionButton(
+                "Try Dictation Again",
+                symbol: "mic.fill",
+                tint: .accentColor,
+                action: onStartDictation
             )
         }
     }
@@ -162,7 +171,7 @@ struct MenuContentView: View {
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
+        .padding(10)
         .background(surfaceFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -174,7 +183,7 @@ struct MenuContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
+        .padding(10)
         .background(surfaceFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -194,14 +203,15 @@ struct MenuContentView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(11)
+        .padding(9)
         .background(.tint.opacity(0.075), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var shortcutDescription: String {
-        settings.shortcutKey == .disabled
-            ? "Start and stop from this popover."
-            : "(settings.shortcutKey.displayName) starts and stops WhisperKeys."
+        guard settings.shortcutKey != .disabled else {
+            return "Start and stop from this popover."
+        }
+        return settings.shortcutKey.displayName + " starts and stops dictation."
     }
 
     private func actionButton(
@@ -214,21 +224,39 @@ struct MenuContentView: View {
             Label(title, systemImage: symbol)
                 .font(.body.weight(.semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
         }
         .buttonStyle(.borderedProminent)
         .tint(tint)
-        .controlSize(.large)
+        .controlSize(.regular)
     }
 
     private func popoverRow(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: symbol)
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .frame(width: 20)
+                Text(title)
+            }
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
+    }
+
+    private func compactToggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, settingsContentInset)
+        .padding(.vertical, 7)
     }
 
     private var status: (title: String, symbol: String, color: Color) {
@@ -242,7 +270,7 @@ struct MenuContentView: View {
         case .typing:
             ("Typing…", "keyboard", .orange)
         case .installingModel:
-            ("Setting things up…", "arrow.down", .tint)
+            ("Setting things up…", "arrow.down", .accentColor)
         case .error(let message):
             (message, "exclamationmark", .red)
         }
@@ -251,6 +279,8 @@ struct MenuContentView: View {
     private var surfaceFill: Color {
         Color(nsColor: .controlBackgroundColor).opacity(0.72)
     }
+
+    private var settingsContentInset: CGFloat { 30 }
 
     private var startAtLoginBinding: Binding<Bool> {
         Binding(

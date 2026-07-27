@@ -37,6 +37,11 @@ final class AppSettingsTests: XCTestCase {
 
         XCTAssertEqual(settings.appearance, .dark)
         XCTAssertEqual(AppSettings(defaults: defaults).appearance, .dark)
+
+        settings.appearanceID = AppAppearance.system.rawValue
+
+        XCTAssertEqual(settings.appearance, .system)
+        XCTAssertEqual(AppSettings(defaults: defaults).appearance, .system)
     }
 
     func testCustomTypingSpeedIsRetainedWhenFastestIsSelected() {
