@@ -17,18 +17,18 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>WhisperKeys uses System Events to type into the active Windows App session when its standard keyboard events do not preserve capitalization.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>WhisperKeys records speech locally to transcribe it with an on-device Whisper model.</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>WhisperKeys uses System Events to type into the active Windows App session when its standard keyboard events do not preserve capitalization.</string>
 </dict>
 </plist>

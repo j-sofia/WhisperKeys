@@ -69,6 +69,26 @@ final class TranscriptionTextNormalizerTests: XCTestCase {
         XCTAssertEqual(text, "hello world")
     }
 
+    func testPrepareSuppressesSoundAnnotationsAndFillerSounds() {
+        let text = TranscriptionTextNormalizer.prepare(
+            "Um, we should *sigh* [SILENCE] continue, uhh.",
+            autoCapitalizeFirstSentence: false,
+            appendReturn: false
+        )
+
+        XCTAssertEqual(text, "we should continue.")
+    }
+
+    func testPrepareDoesNotRemoveWordsContainingFillerSoundLetters() {
+        let text = TranscriptionTextNormalizer.prepare(
+            "the thumb is up",
+            autoCapitalizeFirstSentence: false,
+            appendReturn: false
+        )
+
+        XCTAssertEqual(text, "the thumb is up")
+    }
+
     func testPrepareAppliesCapitalizationAndReturnAfterCleanup() {
         let text = TranscriptionTextNormalizer.prepare(
             "the team shares,, knowledge",

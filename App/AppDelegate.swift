@@ -116,8 +116,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             menuPopover.performClose(nil)
         } else {
             menuPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            menuPopover.contentViewController?.view.window?.makeKey()
+            configureMenuBarOverlay(menuPopover)
         }
+    }
+
+    /// Popovers created from a status item are initially regular app windows. Promote their
+    /// backing window after presentation so a menu remains visible and interactive over a
+    /// fullscreen window owned by another app.
+    private func configureMenuBarOverlay(_ popover: NSPopover) {
+        guard let window = popover.contentViewController?.view.window else { return }
+
+        window.level = .popUpMenu
+        window.collectionBehavior = [
+            .canJoinAllSpaces,
+            .canJoinAllApplications,
+            .fullScreenAuxiliary,
+            .transient,
+            .ignoresCycle
+        ]
+        window.makeKeyAndOrderFront(nil)
     }
 
     static func presentOnboarding() {
@@ -247,6 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak button] in
             guard let self, let button else { return }
             self.onboardingTipPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            self.configureMenuBarOverlay(self.onboardingTipPopover)
             let dismissWorkItem = DispatchWorkItem { [weak self] in
                 self?.dismissOnboardingTip()
             }

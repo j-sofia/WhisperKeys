@@ -6,13 +6,7 @@ enum TranscriptionTextNormalizer {
         autoCapitalizeFirstSentence: Bool,
         appendReturn: Bool
     ) -> String {
-        var text = TranscriptRepetitionFilter.clean(
-            recognized.replacingOccurrences(
-                of: #"\s*\[BLANK_AUDIO\]\s*"#,
-                with: " ",
-                options: [.regularExpression, .caseInsensitive]
-            )
-        )
+        var text = TranscriptRepetitionFilter.clean(TranscriptArtifactFilter.clean(recognized))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return "" }
 
@@ -21,6 +15,45 @@ enum TranscriptionTextNormalizer {
         }
         if appendReturn { text.append("\n") }
         return text
+    }
+}
+
+/// Drops non-speech annotations produced by recognizers, plus standalone filler sounds.
+/// Delimited annotations are not spoken words, so replacing them with a space preserves the
+/// words on either side without allowing a sound label to reach the focused application.
+private enum TranscriptArtifactFilter {
+    static func clean(_ text: String) -> String {
+        var cleaned = text.replacingOccurrences(
+            of: #"\s*(?:\*[^*\r\n]+\*|\[[^\]\r\n]+\])\s*"#,
+            with: " ",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\b(?:u+h+|u+m+)\b"#,
+            with: " ",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"[ \t]{2,}"#,
+            with: " ",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\s+([,.;:!?])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"[,;:]([.!?])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"^\s*[,;:]+\s*|\s*[,;:]+\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
+        return cleaned
     }
 }
 
