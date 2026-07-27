@@ -7,9 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static private(set) var shared: AppDelegate?
 
     private var dockVisibilityObservation: AnyCancellable?
+    private var activityObservation: AnyCancellable?
     private weak var viewModel: AppViewModel?
     private var onboardingWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var statusItem: NSStatusItem?
+    private let menuPopover = NSPopover()
+    private let onboardingTipPopover = NSPopover()
+    private var onboardingTipDismissWorkItem: DispatchWorkItem?
 
     override init() {
         super.init()
@@ -27,11 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         viewModel?.shutdown()
         dockVisibilityObservation?.cancel()
         dockVisibilityObservation = nil
+        activityObservation?.cancel()
+        activityObservation = nil
     }
 
     func configure(viewModel: AppViewModel) {
         self.viewModel = viewModel
         configure(settings: viewModel.settings)
+        configureMenuBarItem(with: viewModel)
         presentOnboardingIfNeeded()
     }
 
@@ -41,6 +49,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .sink { [weak self] isVisible in
                 self?.setDockVisibility(isVisible)
             }
+    }
+
+    private func configureMenuBarItem(with viewModel: AppViewModel) {
+        if statusItem == nil {
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            guard let button = item.button else { return }
+
+            button.target = self
+            button.action = #selector(toggleMenuPopover)
+            button.sendAction(on: [.leftMouseUp])
+            button.toolTip = "WhisperKeys"
+            statusItem = item
+
+            menuPopover.behavior = .transient
+            menuPopover.animates = true
+            menuPopover.contentSize = NSSize(width: 280, height: 330)
+            menuPopover.contentViewController = NSHostingController(
+                rootView: MenuContentView(viewModel: viewModel)
+            )
+
+            onboardingTipPopover.behavior = .transient
+            onboardingTipPopover.animates = true
+            onboardingTipPopover.contentSize = NSSize(width: 320, height: 132)
+        }
+
+        activityObservation = viewModel.$activity
+            .receive(on: RunLoop.main)
+            .sink { [weak self] activity in
+                self?.updateMenuBarIcon(for: activity)
+            }
+        updateMenuBarIcon(for: viewModel.activity)
+    }
+
+    private func updateMenuBarIcon(for activity: AppActivity) {
+        guard let button = statusItem?.button else { return }
+        let symbolName: String
+        switch activity {
+        case .recording: symbolName = "record.circle.fill"
+        case .transcribing, .typing, .installingModel: symbolName = "ellipsis.circle.fill"
+        case .error: symbolName = "exclamationmark.triangle.fill"
+        case .idle: symbolName = "waveform"
+        }
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "WhisperKeys")
+        image?.isTemplate = true
+        button.image = image
+    }
+
+    @objc private func toggleMenuPopover() {
+        guard let button = statusItem?.button else { return }
+        dismissOnboardingTip()
+        if menuPopover.isShown {
+            menuPopover.performClose(nil)
+        } else {
+            menuPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            menuPopover.contentViewController?.view.window?.makeKey()
+        }
     }
 
     static func presentOnboarding() {
@@ -57,6 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard viewModel?.settings.showInDock == true else { return false }
+
+        // During setup, the Dock icon must return the user to the onboarding flow
+        // rather than opening Settings, so they can continue where they left off.
+        if viewModel?.settings.needsOnboarding == true {
+            presentOnboardingIfNeeded()
+            return true
+        }
+
         presentSettingsWindow()
         return true
     }
@@ -146,6 +218,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func closeOnboarding() {
         onboardingWindow?.close()
         onboardingWindow = nil
+        showOnboardingTip()
+    }
+
+    private func showOnboardingTip() {
+        guard let button = statusItem?.button, let viewModel else { return }
+        menuPopover.performClose(nil)
+        dismissOnboardingTip()
+
+        onboardingTipPopover.contentViewController = NSHostingController(
+            rootView: OnboardingMenuBarTip(settings: viewModel.settings)
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak button] in
+            guard let self, let button else { return }
+            self.onboardingTipPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            let dismissWorkItem = DispatchWorkItem { [weak self] in
+                self?.dismissOnboardingTip()
+            }
+            self.onboardingTipDismissWorkItem = dismissWorkItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 9, execute: dismissWorkItem)
+        }
+    }
+
+    private func dismissOnboardingTip() {
+        onboardingTipDismissWorkItem?.cancel()
+        onboardingTipDismissWorkItem = nil
+        onboardingTipPopover.performClose(nil)
     }
 
     private func closeSettingsWindow() {
@@ -155,6 +253,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func setDockVisibility(_ isVisible: Bool) {
         NSApplication.shared.setActivationPolicy(isVisible ? .regular : .accessory)
+    }
+}
+
+private struct OnboardingMenuBarTip: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "menubar.rectangle")
+                .font(.system(size: 23, weight: .semibold))
+                .foregroundStyle(.tint)
+                .frame(width: 38, height: 38)
+                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("WhisperKeys lives here")
+                    .font(.headline)
+                Text(instructions)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(width: 320, alignment: .leading)
+        .preferredColorScheme(settings.appearance.colorScheme)
+    }
+
+    private var instructions: String {
+        guard settings.shortcutKey != .disabled else {
+            return "Use this menu bar icon to start and end transcription."
+        }
+        return "Double-press \(settings.shortcutKey.displayName) to start WhisperKeys. Double-press it again to end transcription."
     }
 }
 
