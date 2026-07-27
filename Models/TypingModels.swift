@@ -39,6 +39,26 @@ struct TypingConfiguration {
             && extraCharacterDelayMilliseconds == 0
             && extraWordDelayMilliseconds == 0
     }
+
+    /// Remote clients need separate, observable down/up transitions even when the user selected
+    /// fastest typing. This only adds the amount of timing missing from the current preference.
+    func applyingMinimumKeyTiming(
+        keyDownMilliseconds minimumKeyDownMilliseconds: Int,
+        characterIntervalMilliseconds minimumCharacterIntervalMilliseconds: Int
+    ) -> TypingConfiguration {
+        let keyDownMilliseconds = max(self.keyDownMilliseconds, minimumKeyDownMilliseconds)
+        let existingCharacterInterval = characterIntervalMilliseconds + Double(extraCharacterDelayMilliseconds)
+        let additionalCharacterDelay = max(
+            0,
+            Int(ceil(Double(minimumCharacterIntervalMilliseconds) - existingCharacterInterval))
+        )
+        return TypingConfiguration(
+            wordsPerMinute: wordsPerMinute,
+            keyDownMilliseconds: keyDownMilliseconds,
+            extraCharacterDelayMilliseconds: extraCharacterDelayMilliseconds + additionalCharacterDelay,
+            extraWordDelayMilliseconds: extraWordDelayMilliseconds
+        )
+    }
 }
 
 struct TypingLogEntry: Identifiable {
@@ -55,7 +75,6 @@ enum TypingError: LocalizedError {
     case couldNotCreateEvent
     case keyboardLayoutUnavailable
     case unsupportedCharacter(Character)
-    case systemEventsTypingFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -67,8 +86,6 @@ enum TypingError: LocalizedError {
             "macOS could not read the active keyboard layout. Switch to a standard keyboard layout and try again."
         case .unsupportedCharacter(let character):
             "The active keyboard layout cannot type “\(character)” as one key press."
-        case .systemEventsTypingFailed(let detail):
-            "Windows App compatibility typing failed. Allow WhisperKeys to control System Events in System Settings → Privacy & Security → Automation, then try again. \(detail)"
         }
     }
 }

@@ -8,20 +8,29 @@ final class AppSettings: ObservableObject {
         static let wordsPerMinute = 0
         static let customWordsPerMinute = 60
         static let keyDownMilliseconds = 1
-        static let characterDelayMilliseconds = 5
+        static let characterDelayMilliseconds = 2
         static let showInDock = false
     }
 
     private enum Key {
+        static let onboardingFlowVersion = "onboardingFlowVersion"
         static let model = "whisperModel"
         static let wordsPerMinute = "wordsPerMinute"
         static let customWordsPerMinute = "customWordsPerMinute"
         static let keyDownMilliseconds = "keyDownMilliseconds"
         static let characterDelayMilliseconds = "characterDelayMilliseconds"
         static let wordDelayMilliseconds = "wordDelayMilliseconds"
+        /// The old modifier-only shortcut setting. It is read once to migrate existing users.
         static let shortcutKey = "shortcutKey"
+        static let shortcutKeyCode = "shortcutKeyCode"
+        static let shortcutModifierFlags = "shortcutModifierFlags"
+        static let shortcutDisplayName = "shortcutDisplayName"
+        static let shortcutActivationMode = "shortcutActivationMode"
+        static let shortcutDoublePressInterval = "shortcutDoublePressInterval"
         static let autoCapitalize = "autoCapitalize"
         static let pressEnter = "pressEnter"
+        static let transcriptionMode = "transcriptionMode"
+        static let inputDeviceID = "inputDeviceID"
         static let showInDock = "showInDock"
         static let appearance = "appearance"
         static let onboardingCompleted = "onboardingCompleted"
@@ -29,6 +38,7 @@ final class AppSettings: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private let defaultsDomainName: String
 
     @Published var whisperModelID: String { didSet { defaults.set(whisperModelID, forKey: Key.model) } }
     @Published var wordsPerMinute: Int {
@@ -50,9 +60,43 @@ final class AppSettings: ObservableObject {
     @Published var keyDownMilliseconds: Int { didSet { defaults.set(keyDownMilliseconds, forKey: Key.keyDownMilliseconds) } }
     @Published var characterDelayMilliseconds: Int { didSet { defaults.set(characterDelayMilliseconds, forKey: Key.characterDelayMilliseconds) } }
     @Published var wordDelayMilliseconds: Int { didSet { defaults.set(wordDelayMilliseconds, forKey: Key.wordDelayMilliseconds) } }
-    @Published var shortcutKeyID: String { didSet { defaults.set(shortcutKeyID, forKey: Key.shortcutKey) } }
+    @Published var shortcutConfiguration: ShortcutConfiguration {
+        didSet {
+            if let keyCode = shortcutConfiguration.keyCode {
+                defaults.set(keyCode, forKey: Key.shortcutKeyCode)
+            } else {
+                defaults.removeObject(forKey: Key.shortcutKeyCode)
+            }
+            defaults.set(NSNumber(value: shortcutConfiguration.modifierFlagsRawValue), forKey: Key.shortcutModifierFlags)
+            defaults.set(shortcutConfiguration.displayName, forKey: Key.shortcutDisplayName)
+        }
+    }
+    @Published var shortcutActivationModeID: String {
+        didSet { defaults.set(shortcutActivationModeID, forKey: Key.shortcutActivationMode) }
+    }
+    @Published var shortcutDoublePressIntervalMilliseconds: Int {
+        didSet {
+            let normalized = min(max(shortcutDoublePressIntervalMilliseconds, 200), 800)
+            if shortcutDoublePressIntervalMilliseconds != normalized {
+                shortcutDoublePressIntervalMilliseconds = normalized
+                return
+            }
+            defaults.set(shortcutDoublePressIntervalMilliseconds, forKey: Key.shortcutDoublePressInterval)
+        }
+    }
     @Published var autoCapitalizeFirstSentence: Bool { didSet { defaults.set(autoCapitalizeFirstSentence, forKey: Key.autoCapitalize) } }
     @Published var pressEnterAfterTranscription: Bool { didSet { defaults.set(pressEnterAfterTranscription, forKey: Key.pressEnter) } }
+    @Published var transcriptionModeID: String { didSet { defaults.set(transcriptionModeID, forKey: Key.transcriptionMode) } }
+    /// `nil` follows the Mac's current default input. A concrete ID keeps dictation on that device.
+    @Published var inputDeviceID: UInt32? {
+        didSet {
+            guard let inputDeviceID else {
+                defaults.removeObject(forKey: Key.inputDeviceID)
+                return
+            }
+            defaults.set(NSNumber(value: inputDeviceID), forKey: Key.inputDeviceID)
+        }
+    }
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: Key.showInDock) } }
     @Published var appearanceID: String { didSet { defaults.set(appearanceID, forKey: Key.appearance) } }
     @Published private(set) var needsOnboarding: Bool {
@@ -65,9 +109,15 @@ final class AppSettings: ObservableObject {
     @Published private(set) var startAtLoginRequiresApproval: Bool
     @Published private(set) var startAtLoginError: String?
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        defaultsDomainName: String = Bundle.main.bundleIdentifier ?? "com.j-sof.WhisperKeys"
+    ) {
         self.defaults = defaults
-        whisperModelID = defaults.string(forKey: Key.model) ?? WhisperModel.tiny.rawValue
+        self.defaultsDomainName = defaultsDomainName
+        // Keep an existing choice intact. On a new installation, start with the
+        // conservative recommendation calculated from this Mac's local hardware.
+        whisperModelID = defaults.string(forKey: Key.model) ?? MacHardwareProfile.current.recommendedModel.rawValue
         let savedWordsPerMinute = defaults.object(forKey: Key.wordsPerMinute) as? Int
         let savedKeyDownMilliseconds = defaults.object(forKey: Key.keyDownMilliseconds) as? Int
         let savedCharacterDelayMilliseconds = defaults.object(forKey: Key.characterDelayMilliseconds) as? Int
@@ -92,13 +142,41 @@ final class AppSettings: ObservableObject {
         keyDownMilliseconds = hasLegacyTypingDefaults ? 0 : (savedKeyDownMilliseconds ?? Default.keyDownMilliseconds)
         characterDelayMilliseconds = savedCharacterDelayMilliseconds ?? Default.characterDelayMilliseconds
         wordDelayMilliseconds = savedWordDelayMilliseconds ?? 0
-        shortcutKeyID = defaults.string(forKey: Key.shortcutKey) ?? ShortcutKey.rightOption.rawValue
+        let hasSavedShortcutConfiguration = defaults.object(forKey: Key.shortcutKeyCode) != nil
+            || defaults.object(forKey: Key.shortcutDisplayName) != nil
+        let savedShortcutKeyCode = (defaults.object(forKey: Key.shortcutKeyCode) as? NSNumber)?.int64Value
+        let legacyShortcut = ShortcutKey(rawValue: defaults.string(forKey: Key.shortcutKey) ?? "")
+        let migratedShortcut = legacyShortcut?.shortcutConfiguration ?? .defaultRightOption
+        shortcutConfiguration = ShortcutConfiguration(
+            keyCode: hasSavedShortcutConfiguration ? savedShortcutKeyCode : migratedShortcut.keyCode,
+            modifierFlagsRawValue: (defaults.object(forKey: Key.shortcutModifierFlags) as? NSNumber)?.uint64Value
+                ?? migratedShortcut.modifierFlagsRawValue,
+            displayName: defaults.string(forKey: Key.shortcutDisplayName)
+                ?? (hasSavedShortcutConfiguration ? "Disabled" : migratedShortcut.displayName)
+        )
+        shortcutActivationModeID = ShortcutActivationMode(
+            rawValue: defaults.string(forKey: Key.shortcutActivationMode) ?? ""
+        )?.rawValue ?? ShortcutActivationMode.doublePress.rawValue
+        shortcutDoublePressIntervalMilliseconds = min(
+            max(defaults.object(forKey: Key.shortcutDoublePressInterval) as? Int ?? 350, 200),
+            800
+        )
         autoCapitalizeFirstSentence = defaults.object(forKey: Key.autoCapitalize) as? Bool ?? true
         pressEnterAfterTranscription = defaults.object(forKey: Key.pressEnter) as? Bool ?? false
+        transcriptionModeID = TranscriptionMode(rawValue: defaults.string(forKey: Key.transcriptionMode) ?? "")?.rawValue
+            ?? TranscriptionMode.live.rawValue
+        let savedInputDeviceID = (defaults.object(forKey: Key.inputDeviceID) as? NSNumber)?.uint32Value
+        inputDeviceID = savedInputDeviceID == 0 ? nil : savedInputDeviceID
         showInDock = defaults.object(forKey: Key.showInDock) as? Bool ?? Default.showInDock
         appearanceID = AppAppearance(rawValue: defaults.string(forKey: Key.appearance) ?? "")?.rawValue ?? AppAppearance.system.rawValue
         needsOnboarding = !defaults.bool(forKey: Key.onboardingCompleted)
-        onboardingResumeStep = defaults.object(forKey: Key.onboardingResumeStep) as? Int ?? 0
+        let savedOnboardingStep = defaults.object(forKey: Key.onboardingResumeStep) as? Int ?? 0
+        let savedOnboardingFlowVersion = defaults.integer(forKey: Key.onboardingFlowVersion)
+        onboardingResumeStep = Self.migrateOnboardingStep(
+            savedOnboardingStep,
+            fromFlowVersion: savedOnboardingFlowVersion
+        )
+        defaults.set(Self.currentOnboardingFlowVersion, forKey: Key.onboardingFlowVersion)
 
         let loginItemStatus = SMAppService.mainApp.status
         startAtLogin = loginItemStatus == .enabled || loginItemStatus == .requiresApproval
@@ -107,8 +185,23 @@ final class AppSettings: ObservableObject {
     }
 
     var selectedModel: WhisperModel { WhisperModel(rawValue: whisperModelID) ?? .tiny }
-    var shortcutKey: ShortcutKey { ShortcutKey(rawValue: shortcutKeyID) ?? .rightOption }
+    var shortcutActivationMode: ShortcutActivationMode {
+        ShortcutActivationMode(rawValue: shortcutActivationModeID) ?? .doublePress
+    }
+    var shortcutIsEnabled: Bool { shortcutConfiguration.isEnabled }
+    var shortcutActionDescription: String {
+        guard shortcutIsEnabled else { return "Use the menu bar to start and stop dictation." }
+        switch shortcutActivationMode {
+        case .singlePress:
+            return "Press \(shortcutConfiguration.displayName) to start or stop dictation."
+        case .doublePress:
+            return "Double-press \(shortcutConfiguration.displayName) to start or stop dictation."
+        case .hold:
+            return "Hold \(shortcutConfiguration.displayName) to dictate, then release to transcribe."
+        }
+    }
     var appearance: AppAppearance { AppAppearance(rawValue: appearanceID) ?? .system }
+    var transcriptionMode: TranscriptionMode { TranscriptionMode(rawValue: transcriptionModeID) ?? .live }
     var usesFastestTypingSpeed: Bool { wordsPerMinute == 0 }
 
     var typingConfiguration: TypingConfiguration {
@@ -128,6 +221,22 @@ final class AppSettings: ObservableObject {
         let normalized = min(max(wordsPerMinute, 1), 200)
         customWordsPerMinute = normalized
         self.wordsPerMinute = normalized
+    }
+
+    func setShortcut(keyCode: Int64, modifierFlagsRawValue: UInt64, displayName: String) {
+        shortcutConfiguration = ShortcutConfiguration(
+            keyCode: keyCode,
+            modifierFlagsRawValue: modifierFlagsRawValue,
+            displayName: displayName
+        )
+    }
+
+    func disableShortcut() {
+        shortcutConfiguration = ShortcutConfiguration(
+            keyCode: nil,
+            modifierFlagsRawValue: 0,
+            displayName: "Disabled"
+        )
     }
 
     /// Updates the app's Login Items registration. The system, rather than UserDefaults,
@@ -156,6 +265,13 @@ final class AppSettings: ObservableObject {
         SMAppService.openSystemSettingsLoginItems()
     }
 
+    /// Clears only values owned by WhisperKeys' UserDefaults domain. The app exits immediately
+    /// afterward, so a future launch reads its normal first-run defaults without rewriting them.
+    func removeAllStoredValues() {
+        defaults.removePersistentDomain(forName: defaultsDomainName)
+        defaults.synchronize()
+    }
+
     /// Onboarding is intentionally opt-in after first completion; Settings is the only place
     /// that starts it again for an existing installation.
     func resetOnboarding() {
@@ -170,13 +286,29 @@ final class AppSettings: ObservableObject {
 
     /// Preserves the exact setup page so an app relaunch never makes the user repeat steps.
     func resumeOnboarding(at step: Int) {
-        onboardingResumeStep = min(max(step, 0), 5)
+        onboardingResumeStep = min(max(step, 0), 4)
         needsOnboarding = true
     }
 
     /// Starts setup at Permissions when the reset was initiated from Settings.
     func resumeOnboardingAtPermissions() {
-        resumeOnboarding(at: 4)
+        resumeOnboarding(at: 3)
+    }
+
+    private static let currentOnboardingFlowVersion = 2
+
+    private static func migrateOnboardingStep(_ step: Int, fromFlowVersion version: Int) -> Int {
+        guard version < currentOnboardingFlowVersion else {
+            return min(max(step, 0), 4)
+        }
+
+        // Version 1 included a Preferences page between Shortcut and Permissions.
+        // Resume that page, and the later pages, at their nearest equivalent.
+        return switch step {
+        case 0...2: step
+        case 3, 4: 3
+        default: 4
+        }
     }
 
     private func updateStartAtLoginStatus(clearError: Bool) {

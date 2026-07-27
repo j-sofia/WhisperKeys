@@ -1,17 +1,33 @@
 import AVFoundation
+import AudioToolbox
+import CoreAudio
 import Foundation
 
 /// Fallback recorder for recognizers that support only file-based transcription.
 /// WhisperKit's live recognizer captures directly through its own 16 kHz audio processor.
 final class AudioRecorder {
     private let engine = AVAudioEngine()
+    private let audioLevelHandlerLock = NSLock()
     private var outputFile: AVAudioFile?
     private var outputURL: URL?
+    private var audioLevelHandler: (@Sendable (Float) -> Void)?
 
-    func start() throws -> URL {
+    /// Receives a normalized microphone level for every captured audio buffer. The callback is
+    /// invoked from AVAudioEngine's realtime thread, so consumers must hop to their own queue
+    /// before updating UI.
+    func setAudioLevelHandler(_ handler: (@Sendable (Float) -> Void)?) {
+        audioLevelHandlerLock.lock()
+        audioLevelHandler = handler
+        audioLevelHandlerLock.unlock()
+    }
+
+    func start(inputDeviceID: UInt32? = nil) throws -> URL {
         stopAndDiscardIfNeeded()
 
         let input = engine.inputNode
+        if let inputDeviceID {
+            try selectInputDevice(inputDeviceID, on: input)
+        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw SpeechError.microphoneUnavailable
@@ -28,6 +44,7 @@ final class AudioRecorder {
         outputURL = url
 
         input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [weak self] buffer, _ in
+            self?.publishAudioLevel(from: buffer)
             do {
                 try self?.outputFile?.write(from: buffer)
             } catch {
@@ -38,6 +55,49 @@ final class AudioRecorder {
         engine.prepare()
         try engine.start()
         return url
+    }
+
+    private func selectInputDevice(_ deviceID: UInt32, on inputNode: AVAudioInputNode) throws {
+        guard let audioUnit = inputNode.audioUnit else {
+            throw SpeechError.microphoneUnavailable
+        }
+
+        var selectedDeviceID = AudioDeviceID(deviceID)
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &selectedDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else {
+            throw SpeechError.microphoneUnavailable
+        }
+    }
+
+    private func publishAudioLevel(from buffer: AVAudioPCMBuffer) {
+        audioLevelHandlerLock.lock()
+        let handler = audioLevelHandler
+        audioLevelHandlerLock.unlock()
+        guard let handler else { return }
+
+        guard let samples = buffer.floatChannelData?.pointee,
+              buffer.frameLength > 0
+        else {
+            handler(0)
+            return
+        }
+
+        var sumOfSquares: Float = 0
+        for index in 0..<Int(buffer.frameLength) {
+            let sample = samples[index]
+            sumOfSquares += sample * sample
+        }
+        // RMS represents the energy across the buffer instead of one brief spike. It leaves
+        // headroom for louder speech, rather than pinning the preview at full height normally.
+        let rootMeanSquare = (sumOfSquares / Float(buffer.frameLength)).squareRoot()
+        handler(min(1, rootMeanSquare * 4))
     }
 
     func stop() -> URL? {
@@ -57,14 +117,9 @@ final class AudioRecorder {
     }
 
     private func makeRecordingURL() throws -> URL {
-        let folder = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        .appendingPathComponent("WhisperKeys/Recordings", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let localDataStore = LocalDataStore()
+        let folder = localDataStore.recordingsDirectory
+        try localDataStore.createDirectory(at: folder)
         return folder.appendingPathComponent("dictation-\(UUID().uuidString).wav")
     }
 }

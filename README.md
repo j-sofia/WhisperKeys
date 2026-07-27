@@ -46,7 +46,7 @@ WhisperKeys sends modifier keys (including Shift) as their own down/up events be
 
 ### Microsoft Windows App
 
-When Windows App (`com.microsoft.rdc.macos`) is focused, WhisperKeys automatically sends the transcript through macOS System Events instead of its normal Quartz keyboard transport. This is a separate input path that preserves text capitalization when the remote client ignores synthetic modifier keystrokes. On first use, approve the macOS prompt allowing WhisperKeys to control System Events.
+When Windows App (`com.microsoft.rdc.macos`) is focused, WhisperKeys keeps its normal Core Graphics key-event transport and enforces a small delay between key-down and key-up transitions. Remote clients can lose an all-at-once synthetic event burst or leave the final key held, which produces garbled or repeated text; the small delay prevents that while remaining much faster than normal typing.
 
 Also open **Connections → Keyboard Mode** while connected and choose **Unicode**. Windows App's Unicode mode is designed to translate text based on the local keyboard, while Scancode is intended for physical-key shortcuts and non-printing keys.
 

@@ -17,6 +17,11 @@ extension SpeechRecognizing {
 /// An optional live-recognition capability. Keeping it separate preserves the file-based
 /// recognizer seam for tests and alternate recognizers.
 protocol LiveSpeechRecognizing: SpeechRecognizing {
+    /// Selects the input used by the next live dictation. `nil` follows the system default.
+    func setInputDeviceID(_ inputDeviceID: UInt32?) async
+    /// Supplies normalized microphone amplitudes while the live capture is active. A default
+    /// no-op keeps alternate live recognizers and test doubles source-compatible.
+    func setLiveAudioLevelHandler(_ handler: (@Sendable (Float) -> Void)?) async
     func startLiveTranscription(
         model: WhisperModel,
         onPartialTranscription: @escaping @Sendable (String) -> Void,
@@ -30,6 +35,12 @@ protocol LiveSpeechRecognizing: SpeechRecognizing {
     ) async throws -> String
     func stopAndFinalizeLiveTranscription() async throws -> String
     func cancelLiveTranscription() async
+}
+
+extension LiveSpeechRecognizing {
+    func setInputDeviceID(_ inputDeviceID: UInt32?) async {}
+
+    func setLiveAudioLevelHandler(_ handler: (@Sendable (Float) -> Void)?) async {}
 }
 
 /// An explicit stop can arrive while a silence rollover is decoding the segment that just ended.

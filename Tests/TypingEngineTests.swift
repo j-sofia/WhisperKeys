@@ -145,14 +145,13 @@ final class TypingEngineTests: XCTestCase {
         ])
     }
 
-    func testFocusedTextEmitterReplacesQuartzKeystrokesForCompatibilityTarget() {
+    func testFocusedApplicationPacingUsesDistinctRemoteKeyTransitions() {
         let emitter = RecordingEmitter()
-        let textEmitter = RecordingFocusedTextEmitter(shouldUse: true)
         let completed = expectation(description: "typing completes")
         let engine = TypingEngine(
             mapper: testMapper(for: "Hello"),
             emitter: emitter,
-            focusedTextEmitter: textEmitter
+            focusedApplicationTypingConfigurationAdjuster: MinimumRemoteTimingAdjuster()
         )
         engine.onCompleted = { _ in completed.fulfill() }
 
@@ -167,32 +166,26 @@ final class TypingEngineTests: XCTestCase {
         )
         wait(for: [completed], timeout: 1)
 
-        XCTAssertEqual(textEmitter.texts, ["Hello"])
-        XCTAssertTrue(emitter.events.isEmpty)
+        XCTAssertEqual(emitter.events.map(\.kind), [
+            .keyDown, .keyUp,
+            .keyDown, .keyUp,
+            .keyDown, .keyUp,
+            .keyDown, .keyUp,
+            .keyDown, .keyUp
+        ])
+        XCTAssertGreaterThanOrEqual(
+            emitter.events[1].timestamp.timeIntervalSince(emitter.events[0].timestamp),
+            0.0005
+        )
     }
 }
 
-private final class RecordingFocusedTextEmitter: FocusedTextEmitting {
-    private let lock = NSLock()
-    private let shouldUse: Bool
-    private var recordedTexts: [String] = []
-
-    init(shouldUse: Bool) {
-        self.shouldUse = shouldUse
-    }
-
-    var texts: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedTexts
-    }
-
-    func shouldUseForFocusedApplication() -> Bool { shouldUse }
-
-    func emitText(_ text: String) throws {
-        lock.lock()
-        recordedTexts.append(text)
-        lock.unlock()
+private final class MinimumRemoteTimingAdjuster: FocusedApplicationTypingConfigurationAdjusting {
+    func configuration(forFocusedApplication configuration: TypingConfiguration) -> TypingConfiguration {
+        configuration.applyingMinimumKeyTiming(
+            keyDownMilliseconds: 1,
+            characterIntervalMilliseconds: 1
+        )
     }
 }
 

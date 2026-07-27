@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WhisperKit
 
 struct SettingsView: View {
     @ObservedObject var viewModel: AppViewModel
@@ -12,6 +13,9 @@ struct SettingsView: View {
     @State private var showPermissionRestartPrompt = false
     @State private var permissionChangeNeedsRestart = false
     @State private var showOnboardingResetConfirmation = false
+    @State private var showDeleteAllDataConfirmation = false
+    @State private var deleteAllDataError: String?
+    @State private var inputDevices: [AudioDevice] = []
     private let onDismiss: (() -> Void)?
 
     init(viewModel: AppViewModel, onDismiss: (() -> Void)? = nil) {
@@ -22,16 +26,18 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            Form {
             Section("Local Whisper model") {
-                Picker("Model", selection: $settings.whisperModelID) {
-                    ForEach(WhisperModel.allCases) { model in
-                        Text(model.displayName).tag(model.rawValue)
-                    }
-                }
-                .disabled(viewModel.activity == .installingModel)
+                Text("Choose the balance of speed and accuracy that fits your Mac. The recommendation uses only its processor and memory.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ModelSelectionCards(
+                    selection: $settings.whisperModelID,
+                    isDisabled: viewModel.activity == .installingModel
+                )
                 HStack {
-                    Button("Install Selected Model") { viewModel.installSelectedModel() }
+                    Button("Install \(settings.selectedModel.displayName)") { viewModel.installSelectedModel() }
                         .disabled(viewModel.activity == .installingModel)
                     Button("Show Models Folder") { viewModel.openModelsFolder() }
                 }
@@ -50,7 +56,40 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Audio") {
+                Picker("Input device", selection: $settings.inputDeviceID) {
+                    Text("System Default").tag(Optional<UInt32>.none)
+                    ForEach(inputDevices) { device in
+                        Text(device.name).tag(Optional(device.id))
+                    }
+                    if let inputDeviceID = settings.inputDeviceID,
+                       !inputDevices.contains(where: { $0.id == inputDeviceID }) {
+                        Text("Unavailable device (\(inputDeviceID))").tag(Optional(inputDeviceID))
+                    }
+                }
+                HStack {
+                    Text("System Default follows macOS Sound settings. A selected device is used for every new dictation until you change it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Refresh Devices", action: refreshInputDevices)
+                }
+                Text("Changes apply when you next start dictation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Typing") {
+                Picker("Transcription mode", selection: $settings.transcriptionModeID) {
+                    ForEach(TranscriptionMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Text("Live mode types confirmed words while you speak. Review before typing shows the transcript in the waveform popup and types it only after you accept.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("Typing speed", selection: fastestTypingSpeedBinding) {
                     Text("Fastest").tag(true)
                     Text("Custom").tag(false)
@@ -74,22 +113,37 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Stepper("Key down → key up: \(settings.keyDownMilliseconds) ms", value: $settings.keyDownMilliseconds, in: 0...250)
-                Stepper("Extra delay between characters: \(settings.characterDelayMilliseconds) ms", value: $settings.characterDelayMilliseconds, in: 0...5_000, step: 5)
+                Stepper("Extra delay between characters: \(settings.characterDelayMilliseconds) ms", value: $settings.characterDelayMilliseconds, in: 0...5_000, step: 1)
                 Stepper("Extra delay between words: \(settings.wordDelayMilliseconds) ms", value: $settings.wordDelayMilliseconds, in: 0...5_000, step: 5)
                 Toggle("Auto-capitalize first sentence", isOn: $settings.autoCapitalizeFirstSentence)
                 Toggle("Press Enter after transcription", isOn: $settings.pressEnterAfterTranscription)
-                Text("When Windows App is focused, WhisperKeys automatically uses macOS System Events to preserve capitalization. macOS may ask you to allow WhisperKeys to control System Events the first time. Also choose Connections → Keyboard Mode → Unicode in Windows App.")
+                Text("Windows App sessions use the same key-event path as macOS, paced to ensure remote Windows receives every key-up event. In Windows App, choose Connections → Keyboard Mode → Unicode.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Activation") {
-                Picker("Global shortcut", selection: $settings.shortcutKeyID) {
-                    ForEach(ShortcutKey.allCases) { key in Text(key.displayName).tag(key.rawValue) }
+                Picker("Activation style", selection: $settings.shortcutActivationModeID) {
+                    ForEach(ShortcutActivationMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
                 }
-                Text(settings.shortcutKey == .disabled
-                    ? "Use the menu bar to start and stop dictation."
-                    : "Double-tap the selected modifier key to start or stop dictation.")
+                .pickerStyle(.radioGroup)
+                Text(settings.shortcutActivationMode.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ShortcutRecorder(settings: settings)
+
+                if settings.shortcutActivationMode == .doublePress {
+                    Stepper(
+                        "Double-press speed: \(settings.shortcutDoublePressIntervalMilliseconds) ms",
+                        value: $settings.shortcutDoublePressIntervalMilliseconds,
+                        in: 200...800,
+                        step: 25
+                    )
+                }
+                Text(settings.shortcutActionDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -170,13 +224,43 @@ struct SettingsView: View {
                 Text("Shows the first-run setup again. Your current model, shortcut, and preferences are kept until you change them during setup.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Button("Delete All Local Data…", role: .destructive) {
+                    showDeleteAllDataConfirmation = true
+                }
+                .disabled(!canDeleteAllLocalData)
+                Text("Deletes downloaded models, temporary recordings, and all WhisperKeys preferences, then quits the app. macOS permissions and Login Items are not changed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let deleteAllDataError {
+                    Text(deleteAllDataError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
+            }
+            .formStyle(.grouped)
+            .frame(maxHeight: .infinity)
+            .padding([.top, .horizontal])
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Quit WhisperKeys", role: .destructive) {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+            .padding()
         }
-        .formStyle(.grouped)
-        .padding()
         .frame(width: 610, height: 620)
-        .onAppear { settings.refreshStartAtLoginStatus() }
-        .onChange(of: settings.shortcutKeyID) { _, _ in viewModel.restartShortcutMonitor() }
+        .onAppear {
+            settings.refreshStartAtLoginStatus()
+            refreshInputDevices()
+        }
+        .onChange(of: settings.shortcutConfiguration) { _, _ in viewModel.restartShortcutMonitor() }
+        .onChange(of: settings.shortcutActivationModeID) { _, _ in viewModel.restartShortcutMonitor() }
+        .onChange(of: settings.shortcutDoublePressIntervalMilliseconds) { _, _ in viewModel.restartShortcutMonitor() }
         .onChange(of: permissions.accessibility) { oldState, newState in
             handlePermissionChange(from: oldState, to: newState)
         }
@@ -187,6 +271,7 @@ struct SettingsView: View {
             // A user commonly changes an app setting in System Settings, then returns here.
             settings.refreshStartAtLoginStatus()
             permissions.refresh()
+            refreshInputDevices()
         }
         .confirmationDialog(
             "Refresh Permission Settings?",
@@ -207,6 +292,16 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This opens the setup flow again without changing your current preferences.")
+        }
+        .confirmationDialog(
+            "Delete All Local Data?",
+            isPresented: $showDeleteAllDataConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete & Quit", role: .destructive) { deleteAllLocalData() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All downloaded models, temporary recordings, and preferences will be removed from this Mac. WhisperKeys will quit and start fresh the next time you open it. This cannot be undone.")
         }
         .alert("Restart WhisperKeys?", isPresented: $showPermissionRestartPrompt) {
             Button("Restart Now") { restartWhisperKeys() }
@@ -235,6 +330,21 @@ struct SettingsView: View {
             get: { settings.startAtLogin },
             set: { settings.setStartAtLogin($0) }
         )
+    }
+
+    private func refreshInputDevices() {
+        inputDevices = AudioProcessor.getAudioDevices().sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private var canDeleteAllLocalData: Bool {
+        switch viewModel.activity {
+        case .idle, .error:
+            true
+        case .recording, .transcribing, .reviewing, .typing, .installingModel:
+            false
+        }
     }
 
     private func handlePermissionChange(from oldState: PermissionState, to newState: PermissionState) {
@@ -269,6 +379,16 @@ struct SettingsView: View {
             onDismiss()
         } else {
             dismiss()
+        }
+    }
+
+    private func deleteAllLocalData() {
+        do {
+            try viewModel.deleteAllLocalData()
+            viewModel.shutdown()
+            NSApplication.shared.terminate(nil)
+        } catch {
+            deleteAllDataError = "WhisperKeys could not delete all local data. \(error.localizedDescription)"
         }
     }
 }

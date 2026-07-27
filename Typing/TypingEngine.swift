@@ -12,18 +12,18 @@ final class TypingEngine {
     private let typingQueue = DispatchQueue(label: "com.whisperkeys.typing", qos: .userInteractive)
     private let mapper: KeyboardMapper
     private let emitter: KeyEventEmitting
-    private let focusedTextEmitter: FocusedTextEmitting
+    private let focusedApplicationTypingConfigurationAdjuster: FocusedApplicationTypingConfigurationAdjusting
     private let stateLock = NSLock()
     private var activeBatch: TypingBatch?
 
     init(
         mapper: KeyboardMapper = KeyboardMapper(),
         emitter: KeyEventEmitting = CGEventKeyEmitter(),
-        focusedTextEmitter: FocusedTextEmitting = SystemEventsTextEmitter()
+        focusedApplicationTypingConfigurationAdjuster: FocusedApplicationTypingConfigurationAdjusting = WindowsAppTypingConfigurationAdjuster()
     ) {
         self.mapper = mapper
         self.emitter = emitter
-        self.focusedTextEmitter = focusedTextEmitter
+        self.focusedApplicationTypingConfigurationAdjuster = focusedApplicationTypingConfigurationAdjuster
     }
 
     /// Replaces any text still waiting to be typed and begins a new batch.
@@ -40,11 +40,13 @@ final class TypingEngine {
     /// Returns the batch identifier so callers can distinguish its completion from an older run.
     @discardableResult
     func enqueue(_ text: String, configuration: TypingConfiguration) -> UUID? {
-        let preparedEmission: (strokes: [KeyStroke], usesFocusedTextEmitter: Bool)
+        let preparedEmission: (strokes: [KeyStroke], configuration: TypingConfiguration)
         do {
-            let prepare = { () throws -> (strokes: [KeyStroke], usesFocusedTextEmitter: Bool) in
+            let prepare = { () throws -> (strokes: [KeyStroke], configuration: TypingConfiguration) in
                 let strokes = try self.mapper.map(text)
-                return (strokes, self.focusedTextEmitter.shouldUseForFocusedApplication())
+                let effectiveConfiguration = self.focusedApplicationTypingConfigurationAdjuster
+                    .configuration(forFocusedApplication: configuration)
+                return (strokes, effectiveConfiguration)
             }
             if Thread.isMainThread {
                 preparedEmission = try prepare()
@@ -60,7 +62,6 @@ final class TypingEngine {
         }
 
         let emitter = self.emitter
-        let focusedTextEmitter = self.focusedTextEmitter
         stateLock.lock()
         let batch: TypingBatch
         if let activeBatch, !activeBatch.token.isCancelled {
@@ -76,11 +77,9 @@ final class TypingEngine {
             self?.perform(
                 text: text,
                 strokes: preparedEmission.strokes,
-                configuration: configuration,
+                configuration: preparedEmission.configuration,
                 batch: batch,
-                emitter: emitter,
-                focusedTextEmitter: focusedTextEmitter,
-                usesFocusedTextEmitter: preparedEmission.usesFocusedTextEmitter
+                emitter: emitter
             )
         }
         return batch.id
@@ -100,9 +99,7 @@ final class TypingEngine {
         strokes: [KeyStroke],
         configuration: TypingConfiguration,
         batch: TypingBatch,
-        emitter: KeyEventEmitting,
-        focusedTextEmitter: FocusedTextEmitting,
-        usesFocusedTextEmitter: Bool
+        emitter: KeyEventEmitting
     ) {
         defer { finishOperation(in: batch) }
 
@@ -119,25 +116,6 @@ final class TypingEngine {
         } catch {
             DispatchQueue.main.async { [weak self] in self?.onError?(error) }
             cancel(batch)
-            return
-        }
-
-        if usesFocusedTextEmitter {
-            do {
-                try focusedTextEmitter.emitText(text)
-            } catch {
-                DispatchQueue.main.async { [weak self] in self?.onError?(error) }
-                cancel(batch)
-                return
-            }
-
-            guard !token.isCancelled, isCurrent(batch) else { return }
-            if onTypedBatch != nil {
-                let entries = fastLogEntries(text: text, strokes: strokes, started: started)
-                if !entries.isEmpty {
-                    DispatchQueue.main.async { [weak self] in self?.onTypedBatch?(entries) }
-                }
-            }
             return
         }
 

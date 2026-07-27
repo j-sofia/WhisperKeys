@@ -129,7 +129,7 @@ struct MenuContentView: View {
                 tint: .red,
                 action: viewModel.stopAndTranscribe
             )
-        case .transcribing, .typing:
+        case .transcribing, .reviewing, .typing:
             actionButton(
                 "Cancel Current Operation",
                 symbol: "xmark",
@@ -137,13 +137,13 @@ struct MenuContentView: View {
                 action: viewModel.cancelCurrentOperation
             )
         case .installingModel:
-            Label("Installing local model…", systemImage: "arrow.down.circle")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 11)
-                .padding(.horizontal, 14)
-                .background(surfaceFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            actionButton(
+                "Start Dictation",
+                symbol: "mic.fill",
+                tint: .accentColor,
+                action: {},
+                isDisabled: true
+            )
         case .idle:
             actionButton(
                 "Start Dictation",
@@ -189,13 +189,13 @@ struct MenuContentView: View {
 
     private var shortcutCard: some View {
         HStack(spacing: 10) {
-            Image(systemName: settings.shortcutKey == .disabled ? "menubar.rectangle" : "command")
+            Image(systemName: settings.shortcutConfiguration.symbolName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.tint)
                 .frame(width: 28, height: 28)
                 .background(.tint.opacity(0.11), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(settings.shortcutKey == .disabled ? "Menu bar control" : "Double-tap to dictate")
+                Text(shortcutCardTitle)
                     .font(.caption.weight(.semibold))
                 Text(shortcutDescription)
                     .font(.caption)
@@ -208,17 +208,27 @@ struct MenuContentView: View {
     }
 
     private var shortcutDescription: String {
-        guard settings.shortcutKey != .disabled else {
+        guard settings.shortcutIsEnabled else {
             return "Start and stop from this popover."
         }
-        return settings.shortcutKey.displayName + " starts and stops dictation."
+        return settings.shortcutActionDescription
+    }
+
+    private var shortcutCardTitle: String {
+        guard settings.shortcutIsEnabled else { return "Menu bar control" }
+        switch settings.shortcutActivationMode {
+        case .singlePress: return "Press to dictate"
+        case .doublePress: return "Double-press to dictate"
+        case .hold: return "Hold to dictate"
+        }
     }
 
     private func actionButton(
         _ title: String,
         symbol: String,
         tint: Color,
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        isDisabled: Bool = false
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
@@ -229,6 +239,7 @@ struct MenuContentView: View {
         .buttonStyle(.borderedProminent)
         .tint(tint)
         .controlSize(.regular)
+        .disabled(isDisabled)
     }
 
     private func popoverRow(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
@@ -267,6 +278,8 @@ struct MenuContentView: View {
             ("Listening…", "waveform", .red)
         case .transcribing:
             ("Transcribing locally…", "text.badge.checkmark", .orange)
+        case .reviewing:
+            ("Review transcription", "text.badge.checkmark", .accentColor)
         case .typing:
             ("Typing…", "keyboard", .orange)
         case .installingModel:
@@ -303,5 +316,283 @@ struct BrandAppIcon: View {
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .shadow(color: .black.opacity(0.16), radius: size * 0.1, y: size * 0.045)
+    }
+}
+
+/// The floating recording panel's visualizer. Its levels are fed by the same microphone capture
+/// that WhisperKit transcribes, so it remains useful even while dictating into another app.
+struct LiveWaveformPopupView: View {
+    @ObservedObject var viewModel: AppViewModel
+    @ObservedObject private var settings: AppSettings
+
+    init(viewModel: AppViewModel) {
+        self.viewModel = viewModel
+        _settings = ObservedObject(wrappedValue: viewModel.settings)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            popupHeader
+
+            if viewModel.isReviewBeforeTyping {
+                reviewModeContent
+            } else {
+                liveModeContent
+            }
+        }
+        .padding(16)
+        .frame(width: viewModel.isReviewBeforeTyping ? WaveformPopupLayout.reviewWidth : 294, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var popupHeader: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(headerColor)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
+            Text(headerTitle)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+            Spacer()
+            Image(systemName: headerSymbol)
+                .foregroundStyle(headerColor)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var liveModeContent: some View {
+        LiveMicrophoneWaveform(levels: viewModel.liveAudioLevels)
+            .frame(height: 48)
+            .accessibilityLabel("Live microphone waveform")
+
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            HStack(spacing: 4) {
+                Text("Currently typing in:")
+                Text(activeApplicationName)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        Text(stopInstruction)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var reviewModeContent: some View {
+        switch viewModel.activity {
+        case .recording:
+            LiveMicrophoneWaveform(levels: viewModel.liveAudioLevels)
+                .frame(height: 42)
+                .accessibilityLabel("Live microphone waveform")
+            liveReviewPreview
+            Text(stopInstruction)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        case .transcribing:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Finalizing your transcription…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            liveReviewPreview
+        case .reviewing:
+            Text("Nothing is typed until you accept.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            reviewedTranscription
+            HStack {
+                Button("Edit") {
+                    AppDelegate.editReviewTranscription()
+                }
+                Button("Discard", role: .cancel) {
+                    viewModel.cancelCurrentOperation()
+                }
+                Spacer()
+                Button("Accept") {
+                    viewModel.acceptReviewedTranscription()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var liveReviewPreview: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            transcriptLabel("Current transcription")
+            ScrollView {
+                Text(reviewPlaceholder(viewModel.reviewTranscription, fallback: "No words recognized yet"))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: previewTranscriptHeight)
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+
+    private var reviewedTranscription: some View {
+        TextEditor(text: reviewedTranscriptionBinding)
+            .font(.body)
+            .scrollContentBackground(.hidden)
+            .padding(7)
+            .frame(height: finalEditorHeight)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.separator.opacity(0.7))
+        }
+    }
+
+    private func transcriptLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    private func reviewPlaceholder(_ text: String, fallback: String) -> String {
+        text.isEmpty ? fallback : text
+    }
+
+    private var previewTranscriptHeight: CGFloat {
+        WaveformPopupLayout.previewTranscriptHeight(for: viewModel.reviewTranscription)
+    }
+
+    private var finalEditorHeight: CGFloat {
+        WaveformPopupLayout.finalEditorHeight(for: viewModel.reviewTranscription)
+    }
+
+    private var reviewedTranscriptionBinding: Binding<String> {
+        Binding(
+            get: { viewModel.reviewTranscription },
+            set: { viewModel.updateReviewedTranscription($0) }
+        )
+    }
+
+    private var headerTitle: String {
+        switch viewModel.activity {
+        case .recording: "Listening"
+        case .transcribing: "Transcribing locally…"
+        case .reviewing: "Review before typing"
+        default: "WhisperKeys"
+        }
+    }
+
+    private var headerSymbol: String {
+        switch viewModel.activity {
+        case .recording: "mic.fill"
+        case .transcribing: "waveform"
+        case .reviewing: "text.badge.checkmark"
+        default: "waveform"
+        }
+    }
+
+    private var headerColor: Color {
+        switch viewModel.activity {
+        case .recording: .red
+        case .transcribing: .orange
+        case .reviewing: .accentColor
+        default: .secondary
+        }
+    }
+
+    private var stopInstruction: String {
+        guard settings.shortcutIsEnabled else {
+            return "Open WhisperKeys in the menu bar to stop"
+        }
+        switch settings.shortcutActivationMode {
+        case .singlePress:
+            return "Press \(settings.shortcutConfiguration.displayName) to stop"
+        case .doublePress:
+            return "Double-press \(settings.shortcutConfiguration.displayName) to stop"
+        case .hold:
+            return "Release \(settings.shortcutConfiguration.displayName) to stop"
+        }
+    }
+
+    private var activeApplicationName: String {
+        NSWorkspace.shared.frontmostApplication?.localizedName ?? "No active application"
+    }
+}
+
+enum WaveformPopupLayout {
+    static let reviewWidth: CGFloat = 390
+    private static let reviewTextWidth = reviewWidth - 52
+    private static let maximumPreviewTextHeight: CGFloat = 260
+    private static let minimumEditorHeight: CGFloat = 148
+    private static let maximumEditorHeight: CGFloat = 360
+
+    static func previewTranscriptHeight(for transcript: String) -> CGFloat {
+        min(textHeight(for: transcript), maximumPreviewTextHeight)
+    }
+
+    static func finalEditorHeight(for transcript: String) -> CGFloat {
+        min(max(textHeight(for: transcript) + 16, minimumEditorHeight), maximumEditorHeight)
+    }
+
+    static func panelSize(for activity: AppActivity, transcript: String) -> NSSize {
+        let height: CGFloat
+        switch activity {
+        case .recording:
+            height = max(230, 190 + previewTranscriptHeight(for: transcript))
+        case .transcribing:
+            height = max(220, 145 + previewTranscriptHeight(for: transcript))
+        case .reviewing:
+            height = max(300, 135 + finalEditorHeight(for: transcript))
+        default:
+            return NSSize(width: 294, height: 168)
+        }
+        return NSSize(width: reviewWidth, height: min(height, 560))
+    }
+
+    private static func textHeight(for transcript: String) -> CGFloat {
+        let text = transcript.isEmpty ? "No words recognized yet" : transcript
+        let font = NSFont.preferredFont(forTextStyle: .body)
+        let rect = (text as NSString).boundingRect(
+            with: NSSize(width: reviewTextWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        let lineHeight = font.ascender - font.descender + font.leading
+        return max(lineHeight, ceil(rect.height))
+    }
+}
+
+private struct LiveMicrophoneWaveform: View {
+    let levels: [Double]
+
+    var body: some View {
+        Canvas { context, size in
+            let count = max(levels.count, 1)
+            let slotWidth = size.width / CGFloat(count)
+            let barWidth = min(5, max(2, slotWidth * 0.62))
+
+            for index in 0..<count {
+                let level = index < levels.count ? levels[index] : 0.05
+                let height = max(4, size.height * CGFloat(max(level, 0.05)))
+                let rect = CGRect(
+                    x: CGFloat(index) * slotWidth + (slotWidth - barWidth) / 2,
+                    y: (size.height - height) / 2,
+                    width: barWidth,
+                    height: height
+                )
+                let bar = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                context.fill(bar, with: .color(.red))
+            }
+        }
+        .animation(.linear(duration: 0.08), value: levels)
     }
 }

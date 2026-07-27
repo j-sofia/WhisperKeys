@@ -23,83 +23,33 @@ extension KeyEventEmitting {
     }
 }
 
-/// An alternate text transport for clients that discard Core Graphics keyboard events.
+/// Applies a safe lower bound to synthetic keystrokes headed to the Windows App.
 ///
-/// `System Events` generates input through a different macOS path from `CGEvent.post`. The
-/// Windows App recognizes that path reliably when its scancode input path loses modifiers.
-protocol FocusedTextEmitting: AnyObject {
+/// A local Mac consumes Core Graphics events synchronously, but a Windows App session has to
+/// forward every down/up pair through its remote-input channel before the Windows text control
+/// sees it. A zero-delay burst can leave a key logically down there, which looks like garbled or
+/// repeated characters. Keep the normal key-event transport, but make those transitions distinct.
+protocol FocusedApplicationTypingConfigurationAdjusting: AnyObject {
     /// This is queried on the main thread while the intended target still has focus.
-    func shouldUseForFocusedApplication() -> Bool
-    func emitText(_ text: String) throws
+    func configuration(forFocusedApplication configuration: TypingConfiguration) -> TypingConfiguration
 }
 
-/// Sends text through System Events when the Microsoft Windows App is focused.
-final class SystemEventsTextEmitter: FocusedTextEmitting {
+final class WindowsAppTypingConfigurationAdjuster: FocusedApplicationTypingConfigurationAdjusting {
     // Microsoft retained this bundle identifier when Remote Desktop for Mac became Windows App.
     private static let windowsAppBundleIdentifier = "com.microsoft.rdc.macos"
+    // One millisecond makes the down/up pair observable without adding perceptible dictation
+    // latency. Keep a one-millisecond post-key gap so the remote input queue stays ordered.
+    private static let minimumKeyDownMilliseconds = 1
+    private static let minimumCharacterIntervalMilliseconds = 1
 
-    func shouldUseForFocusedApplication() -> Bool {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.windowsAppBundleIdentifier
-    }
-
-    func emitText(_ text: String) throws {
-        guard !text.isEmpty else { return }
-        let source = SystemEventsTextScript.source(for: text)
-        guard let script = NSAppleScript(source: source) else {
-            throw TypingError.systemEventsTypingFailed("macOS could not prepare the compatibility typing script.")
+    func configuration(forFocusedApplication configuration: TypingConfiguration) -> TypingConfiguration {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.windowsAppBundleIdentifier else {
+            return configuration
         }
-
-        var error: NSDictionary?
-        _ = script.executeAndReturnError(&error)
-        if let message = error?[NSAppleScript.errorMessage] as? String {
-            throw TypingError.systemEventsTypingFailed(message)
-        }
-    }
-}
-
-/// Builds a safe AppleScript payload without interpolating transcription text as source code.
-/// Printable text is represented by Unicode character IDs; control characters remain physical
-/// Return, Tab, and Delete key presses so the normal typing semantics are preserved.
-enum SystemEventsTextScript {
-    static func source(for text: String) -> String {
-        let commands = commands(for: text)
-        return """
-        tell application "System Events"
-        \(commands.map { "    \($0)" }.joined(separator: "\n"))
-        end tell
-        """
-    }
-
-    private static func commands(for text: String) -> [String] {
-        var commands: [String] = []
-        var printableRun = ""
-
-        func flushPrintableRun() {
-            guard !printableRun.isEmpty else { return }
-            let expression = printableRun.unicodeScalars
-                .map { "character id \($0.value)" }
-                .joined(separator: " & ")
-            commands.append("keystroke (\(expression))")
-            printableRun.removeAll(keepingCapacity: true)
-        }
-
-        for character in text {
-            switch character {
-            case "\n", "\r":
-                flushPrintableRun()
-                commands.append("key code 36") // Return
-            case "\t":
-                flushPrintableRun()
-                commands.append("key code 48") // Tab
-            case "\u{08}", "\u{7F}":
-                flushPrintableRun()
-                commands.append("key code 51") // Delete
-            default:
-                printableRun.append(character)
-            }
-        }
-        flushPrintableRun()
-        return commands
+        return configuration.applyingMinimumKeyTiming(
+            keyDownMilliseconds: Self.minimumKeyDownMilliseconds,
+            characterIntervalMilliseconds: Self.minimumCharacterIntervalMilliseconds
+        )
     }
 }
 

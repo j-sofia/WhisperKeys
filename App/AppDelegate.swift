@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreGraphics
 import SwiftUI
 
 @MainActor
@@ -9,9 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var dockVisibilityObservation: AnyCancellable?
     private var appearanceObservation: AnyCancellable?
     private var activityObservation: AnyCancellable?
+    private var reviewTranscriptionObservation: AnyCancellable?
     private weak var viewModel: AppViewModel?
     private var onboardingWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var waveformPanel: NSPanel?
+    /// The normal review panel deliberately has no keyboard focus. Selecting Edit gives the
+    /// non-activating panel key focus without activating WhisperKeys or changing Spaces.
+    private var reviewPanelIsEditing = false
     private var statusItem: NSStatusItem?
     private let menuPopover = NSPopover()
     private let onboardingTipPopover = NSPopover()
@@ -37,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appearanceObservation = nil
         activityObservation?.cancel()
         activityObservation = nil
+        reviewTranscriptionObservation?.cancel()
+        reviewTranscriptionObservation = nil
     }
 
     func configure(viewModel: AppViewModel) {
@@ -91,8 +99,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] activity in
                 self?.updateMenuBarIcon(for: activity)
+                self?.updateWaveformPopup(for: activity)
+            }
+        reviewTranscriptionObservation = viewModel.$reviewTranscription
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak viewModel] _ in
+                guard let self, let viewModel, viewModel.isReviewBeforeTyping else { return }
+                self.resizeWaveformPopup(for: viewModel.activity, viewModel: viewModel)
             }
         updateMenuBarIcon(for: viewModel.activity)
+        updateWaveformPopup(for: viewModel.activity)
     }
 
     private func updateMenuBarIcon(for activity: AppActivity) {
@@ -100,13 +117,171 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let symbolName: String
         switch activity {
         case .recording: symbolName = "mic.fill"
-        case .transcribing, .typing, .installingModel: symbolName = "waveform.circle.fill"
+        case .transcribing, .reviewing, .typing, .installingModel: symbolName = "waveform.circle.fill"
         case .error: symbolName = "exclamationmark.triangle.fill"
         case .idle: symbolName = "waveform"
         }
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "WhisperKeys")
         image?.isTemplate = true
         button.image = image
+    }
+
+    private func updateWaveformPopup(for activity: AppActivity) {
+        guard let viewModel else { return }
+        if activity != .reviewing {
+            reviewPanelIsEditing = false
+        }
+        let shouldShow = activity == .recording
+            || (viewModel.isReviewBeforeTyping && (activity == .transcribing || activity == .reviewing))
+        guard shouldShow else {
+            waveformPanel?.orderOut(nil)
+            return
+        }
+        presentWaveformPopup(for: activity)
+    }
+
+    /// A non-activating floating panel keeps the microphone preview visible above the app the
+    /// user is dictating into, including fullscreen apps, without taking keyboard focus away.
+    private func presentWaveformPopup(for activity: AppActivity) {
+        guard let viewModel else { return }
+        let size = waveformPopupSize(for: activity, viewModel: viewModel)
+        let needsKeyboardFocus = activity == .reviewing && reviewPanelIsEditing
+
+        let panel: NSPanel
+        if let waveformPanel {
+            panel = waveformPanel
+        } else {
+            panel = WaveformPanel(
+                contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isFloatingPanel = true
+            panel.collectionBehavior = [
+                .canJoinAllSpaces,
+                .canJoinAllApplications,
+                .fullScreenAuxiliary,
+                .transient,
+                .ignoresCycle
+            ]
+            panel.isMovableByWindowBackground = true
+            panel.hidesOnDeactivate = false
+            panel.isReleasedWhenClosed = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = true
+            panel.contentView = NSHostingView(
+                rootView: LiveWaveformPopupView(viewModel: viewModel)
+            )
+            waveformPanel = panel
+        }
+        // A pop-up-menu level panel stays above a full-screen app. It remains non-activating in
+        // every state, so even Edit does not pull the user out of the target app's Space.
+        panel.level = activity == .reviewing ? .popUpMenu : .floating
+        panel.setContentSize(size)
+        positionWaveformPanel(panel, for: viewModel.dictationTarget)
+        if needsKeyboardFocus {
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
+    }
+
+    /// Gives the non-activating review panel text focus while retaining the target app's Space.
+    static func editReviewTranscription() {
+        shared?.focusReviewEditor()
+    }
+
+    private func focusReviewEditor() {
+        guard let viewModel, viewModel.activity == .reviewing else { return }
+        reviewPanelIsEditing = true
+        presentWaveformPopup(for: .reviewing)
+    }
+
+    private func waveformPopupSize(for activity: AppActivity, viewModel: AppViewModel) -> NSSize {
+        guard viewModel.isReviewBeforeTyping else { return NSSize(width: 294, height: 168) }
+        return WaveformPopupLayout.panelSize(
+            for: activity,
+            transcript: viewModel.reviewTranscription
+        )
+    }
+
+    private func resizeWaveformPopup(for activity: AppActivity, viewModel: AppViewModel) {
+        guard let waveformPanel,
+              activity == .recording || activity == .transcribing || activity == .reviewing
+        else {
+            return
+        }
+        waveformPanel.setContentSize(waveformPopupSize(for: activity, viewModel: viewModel))
+        positionWaveformPanel(waveformPanel, for: viewModel.dictationTarget)
+    }
+
+    private func positionWaveformPanel(_ panel: NSPanel, for application: NSRunningApplication?) {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = screen(for: application)
+            ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
+            ?? NSScreen.main
+        if let screen {
+            let visibleFrame = screen.visibleFrame
+            panel.setFrameOrigin(
+                NSPoint(
+                    x: visibleFrame.midX - panel.frame.width / 2,
+                    y: visibleFrame.maxY - panel.frame.height - 48
+                )
+            )
+        }
+    }
+
+    /// Full-screen apps can occupy another display or a different Space than the mouse's current
+    /// location. Use the target process's largest visible window to select the correct display.
+    private func screen(for application: NSRunningApplication?) -> NSScreen? {
+        guard let application,
+              let windowInfo = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements],
+                kCGNullWindowID
+              ) as? [[String: Any]]
+        else {
+            return nil
+        }
+
+        let targetPID = application.processIdentifier
+        let bounds = windowInfo.compactMap { info -> CGRect? in
+            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == targetPID,
+                  let dictionary = info[kCGWindowBounds as String] as? [String: Any],
+                  let x = (dictionary["X"] as? NSNumber)?.doubleValue,
+                  let y = (dictionary["Y"] as? NSNumber)?.doubleValue,
+                  let width = (dictionary["Width"] as? NSNumber)?.doubleValue,
+                  let height = (dictionary["Height"] as? NSNumber)?.doubleValue,
+                  width > 0,
+                  height > 0
+            else {
+                return nil
+            }
+            return CGRect(x: x, y: y, width: width, height: height)
+        }
+        guard let largestWindow = bounds.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            return nil
+        }
+
+        // Quartz window bounds use a top-left origin; AppKit screen frames use a bottom-left
+        // origin. Convert before comparing the target window with the available displays.
+        let desktopTop = NSScreen.screens.map(\.frame.maxY).max() ?? largestWindow.maxY
+        let appKitBounds = CGRect(
+            x: largestWindow.minX,
+            y: desktopTop - largestWindow.maxY,
+            width: largestWindow.width,
+            height: largestWindow.height
+        )
+        return NSScreen.screens.max { lhs, rhs in
+            overlapArea(lhs.frame, with: appKitBounds) < overlapArea(rhs.frame, with: appKitBounds)
+        }
+    }
+
+    private func overlapArea(_ lhs: CGRect, with rhs: CGRect) -> CGFloat {
+        let overlap = lhs.intersection(rhs)
+        guard !overlap.isNull else { return 0 }
+        return overlap.width * overlap.height
     }
 
     @objc private func toggleMenuPopover() {
@@ -179,31 +354,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func presentSettingsWindow() {
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        let window: NSWindow
         if let settingsWindow {
-            settingsWindow.makeKeyAndOrderFront(nil)
-            return
+            window = settingsWindow
+        } else {
+            guard let viewModel else { return }
+            let newWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 610, height: 620),
+                styleMask: [.titled, .closable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            newWindow.title = "WhisperKeys Settings"
+            newWindow.titlebarAppearsTransparent = true
+            newWindow.isReleasedWhenClosed = false
+            newWindow.delegate = self
+            newWindow.contentView = NSHostingView(
+                rootView: SettingsView(viewModel: viewModel) { [weak self] in
+                    self?.closeSettingsWindow()
+                }
+            )
+            newWindow.center()
+            settingsWindow = newWindow
+            window = newWindow
         }
 
-        guard let viewModel else { return }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 610, height: 620),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "WhisperKeys Settings"
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.contentView = NSHostingView(
-            rootView: SettingsView(viewModel: viewModel) { [weak self] in
-                self?.closeSettingsWindow()
-            }
-        )
-        window.center()
-        settingsWindow = window
+        // A status-item popover remains key until it is closed. Dismiss it before
+        // bringing Settings forward so a previously opened Settings window regains
+        // both window and application focus.
+        menuPopover.performClose(nil)
         window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -302,6 +483,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 }
 
+private final class WaveformPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 private struct OnboardingMenuBarTip: View {
     @ObservedObject var settings: AppSettings
 
@@ -323,10 +509,17 @@ private struct OnboardingMenuBarTip: View {
     }
 
     private var instructions: String {
-        guard settings.shortcutKey != .disabled else {
+        guard settings.shortcutIsEnabled else {
             return "Use this menu bar icon to start and end transcription."
         }
-        return "Double-press \(settings.shortcutKey.displayName) to start WhisperKeys. Double-press it again to end transcription."
+        switch settings.shortcutActivationMode {
+        case .singlePress:
+            return "Press \(settings.shortcutConfiguration.displayName) to start WhisperKeys. Press it again to end transcription."
+        case .doublePress:
+            return "Double-press \(settings.shortcutConfiguration.displayName) to start WhisperKeys. Double-press it again to end transcription."
+        case .hold:
+            return "Hold \(settings.shortcutConfiguration.displayName) to dictate, then release it to end transcription."
+        }
     }
 }
 

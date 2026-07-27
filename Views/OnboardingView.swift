@@ -11,6 +11,7 @@ struct OnboardingView: View {
     @State private var modelDownloadRequested = false
     @State private var modelWasInstalled = false
     @State private var practiceText = ""
+    @State private var shortcutWasDetected = false
     @State private var showPermissionRestartConfirmation = false
     @State private var permissionRestartError: String?
     @FocusState private var practiceFieldIsFocused: Bool
@@ -32,7 +33,9 @@ struct OnboardingView: View {
             onboardingPage
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(.horizontal, 38)
-            .padding(.vertical, 30)
+            // The shortcut step has more controls than the other pages. Its tighter
+            // margins keep every control visible above the persistent footer.
+            .padding(.vertical, step == .shortcut ? 20 : 30)
 
             Divider()
             footer
@@ -41,7 +44,6 @@ struct OnboardingView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             permissions.refresh()
-            settings.refreshStartAtLoginStatus()
             settings.resumeOnboarding(at: step.rawValue)
             if step == .model {
                 modelDownloadRequested = viewModel.activity == .installingModel
@@ -49,7 +51,13 @@ struct OnboardingView: View {
             }
             NSApplication.shared.activate(ignoringOtherApps: true)
         }
-        .onChange(of: settings.shortcutKeyID) { _, _ in
+        .onChange(of: settings.shortcutConfiguration) { _, _ in
+            viewModel.restartShortcutMonitor()
+        }
+        .onChange(of: settings.shortcutActivationModeID) { _, _ in
+            viewModel.restartShortcutMonitor()
+        }
+        .onChange(of: settings.shortcutDoublePressIntervalMilliseconds) { _, _ in
             viewModel.restartShortcutMonitor()
         }
         .onChange(of: settings.whisperModelID) { _, _ in
@@ -67,9 +75,18 @@ struct OnboardingView: View {
                 break
             }
         }
+        .onChange(of: viewModel.shortcutRecognitionCount) { _, _ in
+            if step == .tryIt {
+                shortcutWasDetected = true
+            }
+        }
+        .onChange(of: step) { _, newStep in
+            if newStep == .tryIt {
+                shortcutWasDetected = false
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             permissions.refresh()
-            settings.refreshStartAtLoginStatus()
             viewModel.restartShortcutMonitor()
         }
         .confirmationDialog(
@@ -137,8 +154,6 @@ struct OnboardingView: View {
             modelPage
         case .shortcut:
             shortcutPage
-        case .preferences:
-            preferencesPage
         case .permissions:
             permissionsPage
         case .tryIt:
@@ -177,17 +192,14 @@ struct OnboardingView: View {
     private var modelPage: some View {
         VStack(alignment: .leading, spacing: 20) {
             OnboardingPageTitle("Choose a local model", eyebrow: "PERFORMANCE & PRIVACY")
-            Text("The model is downloaded once, then dictation runs locally. Tiny is a good first choice; you can change models later in Settings.")
+            Text("The model downloads once, then dictation runs locally. We’ve highlighted a choice based on this Mac’s processor and memory; you can always choose another model in Settings.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Picker("Whisper model", selection: $settings.whisperModelID) {
-                ForEach(WhisperModel.allCases) { model in
-                    Text(model.displayName).tag(model.rawValue)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .disabled(viewModel.activity == .installingModel)
+            ModelSelectionCards(
+                selection: $settings.whisperModelID,
+                isDisabled: viewModel.activity == .installingModel
+            )
 
             if viewModel.activity == .installingModel {
                 VStack(alignment: .leading, spacing: 9) {
@@ -213,68 +225,51 @@ struct OnboardingView: View {
     }
 
     private var shortcutPage: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 14) {
             OnboardingPageTitle("Choose your shortcut", eyebrow: "ACTIVATION")
-            Text("Double-tap the selected modifier key to start or stop dictation. The original key press is never blocked.")
+            Text("Record any key or key combination, then choose how it controls dictation. WhisperKeys only observes the shortcut; it never blocks what you type.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Picker("Global shortcut", selection: $settings.shortcutKeyID) {
-                ForEach(ShortcutKey.allCases) { key in
-                    Text(key.displayName).tag(key.rawValue)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ACTIVATION STYLE")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.8)
+                Picker("Activation style", selection: $settings.shortcutActivationModeID) {
+                    ForEach(ShortcutActivationMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
                 }
+                .pickerStyle(.radioGroup)
+                Text(settings.shortcutActivationMode.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .pickerStyle(.radioGroup)
+            .padding(14)
+            .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            if settings.shortcutKey == .disabled {
+            ShortcutRecorder(settings: settings)
+
+            if settings.shortcutActivationMode == .doublePress {
+                Stepper(
+                    "Double-press speed: \(settings.shortcutDoublePressIntervalMilliseconds) ms",
+                    value: $settings.shortcutDoublePressIntervalMilliseconds,
+                    in: 200...800,
+                    step: 25
+                )
+                Text("Increase this if the double-press is difficult to trigger; lower it to avoid accidental activation while typing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !settings.shortcutIsEnabled {
                 Label("You can always start dictation from the menu bar.", systemImage: "menubar.rectangle")
                     .foregroundStyle(.secondary)
             } else {
                 Label("Input Monitoring is needed for the global shortcut. You can approve it in the next step.", systemImage: "hand.raised.fill")
                     .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private var preferencesPage: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            OnboardingPageTitle("Make it feel like yours", eyebrow: "PREFERENCES")
-            Text("These choices can be changed at any time in Settings.")
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 14) {
-                Toggle("Start WhisperKeys when I log in", isOn: startAtLoginBinding)
-                if settings.startAtLoginRequiresApproval {
-                    HStack {
-                        Text("macOS needs you to approve this in Login Items.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Open Login Items") { settings.openLoginItemsSettings() }
-                    }
-                }
-                if let error = settings.startAtLoginError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-
-                Divider()
-                Toggle("Show WhisperKeys in the Dock", isOn: $settings.showInDock)
-                Text("When enabled, the Dock menu includes Quit while the app is running.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Divider()
-                Picker("Appearance", selection: $settings.appearanceID) {
-                    ForEach(AppAppearance.allCases) { appearance in
-                        Text(appearance.displayName).tag(appearance.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-            .padding(18)
-            .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -312,7 +307,7 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
                 .padding(.leading, 4)
 
-            if settings.shortcutKey != .disabled {
+            if settings.shortcutIsEnabled {
                 PermissionSetupRow(
                     title: "Input Monitoring",
                     detail: "Lets WhisperKeys notice your global shortcut.",
@@ -347,6 +342,10 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if settings.shortcutIsEnabled {
+                shortcutTestStatus
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("PRACTICE PAD")
                     .font(.caption2.weight(.bold))
@@ -373,7 +372,7 @@ struct OnboardingView: View {
                     )
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.activity == .installingModel || viewModel.activity == .transcribing || viewModel.activity == .typing)
+                .disabled(viewModel.activity == .installingModel || viewModel.activity == .transcribing || viewModel.activity == .reviewing || viewModel.activity == .typing)
 
                 if viewModel.activity == .installingModel {
                     Text("Please wait while the model loads.")
@@ -414,7 +413,7 @@ struct OnboardingView: View {
             case .tryIt:
                 Button("Finish Setup") { finishOnboarding() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.activity == .recording || viewModel.activity == .transcribing || viewModel.activity == .typing)
+                    .disabled(viewModel.activity == .recording || viewModel.activity == .transcribing || viewModel.activity == .reviewing || viewModel.activity == .typing)
             default:
                 Button("Continue") { move(to: step.next) }
                     .buttonStyle(.borderedProminent)
@@ -425,18 +424,54 @@ struct OnboardingView: View {
         .background(.ultraThinMaterial)
     }
 
-    private var startAtLoginBinding: Binding<Bool> {
-        Binding(
-            get: { settings.startAtLogin },
-            set: { settings.setStartAtLogin($0) }
+    private var practiceInstructions: String {
+        if !settings.shortcutIsEnabled {
+            return "Click in this box, then use Start Dictation and speak. WhisperKeys will type the transcription here just as it will in your other apps."
+        }
+        return "Click in this box, then use your shortcut: \(settings.shortcutActionDescription) WhisperKeys will type the transcription here just as it will in your other apps."
+    }
+
+    private var shortcutTestStatus: some View {
+        HStack(spacing: 12) {
+            Image(systemName: shortcutWasDetected ? "checkmark.circle.fill" : "keyboard")
+                .font(.title3)
+                .foregroundStyle(shortcutWasDetected ? Color.green : Color.accentColor)
+                .frame(width: 30, height: 30)
+                .background(
+                    (shortcutWasDetected ? Color.green : Color.accentColor).opacity(0.11),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(shortcutWasDetected ? "Shortcut detected" : "Shortcut check")
+                    .font(.callout.weight(.semibold))
+                Text(shortcutTestDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            (shortcutWasDetected ? Color.green : Color.accentColor).opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
     }
 
-    private var practiceInstructions: String {
-        if settings.shortcutKey == .disabled {
-            return "Click in this box, then use Start Dictation and speak. WhisperKeys will type the transcription here just as it will in your other apps."
+    private var shortcutTestDetail: String {
+        if shortcutWasDetected {
+            return "WhisperKeys recognized \(settings.shortcutConfiguration.displayName)."
         }
-        return "Click in this box, then double-tap \(settings.shortcutKey.displayName) to start dictation. Double-tap it again when you finish speaking; WhisperKeys will type the transcription here just as it will in your other apps."
+        if permissions.inputMonitoring != .granted {
+            return "Waiting for Input Monitoring permission before \(settings.shortcutConfiguration.displayName) can be detected."
+        }
+        switch settings.shortcutActivationMode {
+        case .singlePress:
+            return "Press \(settings.shortcutConfiguration.displayName) to verify the shortcut."
+        case .doublePress:
+            return "Double-press \(settings.shortcutConfiguration.displayName) to verify the shortcut."
+        case .hold:
+            return "Hold \(settings.shortcutConfiguration.displayName) to verify push-to-talk."
+        }
     }
 
     private func move(to newStep: OnboardingStep) {
@@ -478,7 +513,6 @@ private enum OnboardingStep: Int, CaseIterable {
     case welcome
     case model
     case shortcut
-    case preferences
     case permissions
     case tryIt
 
@@ -487,7 +521,6 @@ private enum OnboardingStep: Int, CaseIterable {
         case .welcome: "Welcome"
         case .model: "Local model"
         case .shortcut: "Shortcut"
-        case .preferences: "Preferences"
         case .permissions: "Permissions"
         case .tryIt: "Try it out"
         }
@@ -498,7 +531,6 @@ private enum OnboardingStep: Int, CaseIterable {
         case .welcome: "waveform"
         case .model: "arrow.down.circle"
         case .shortcut: "keyboard"
-        case .preferences: "slider.horizontal.3"
         case .permissions: "lock.shield"
         case .tryIt: "text.cursor"
         }
@@ -582,4 +614,176 @@ private struct OnboardingPageTitle: View {
 
 private var onboardingSurface: Color {
     Color(nsColor: .controlBackgroundColor).opacity(0.74)
+}
+
+/// Captures the next key press locally, then persists its physical key code and modifiers.
+/// The actual activation remains global and is handled by `GlobalShortcutMonitor`.
+struct ShortcutRecorder: View {
+    @ObservedObject private var settings: AppSettings
+    @State private var isRecording = false
+    @State private var eventMonitor: Any?
+
+    init(settings: AppSettings) {
+        _settings = ObservedObject(wrappedValue: settings)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("SHORTCUT")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .tracking(0.8)
+
+            HStack(spacing: 10) {
+                Text(settings.shortcutConfiguration.displayName)
+                    .font(.system(.body, design: .monospaced).weight(.semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                Button(isRecording ? "Listening…" : "Record Shortcut") {
+                    beginRecording()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isRecording)
+
+                if settings.shortcutIsEnabled {
+                    Button("Clear") { settings.disableShortcut() }
+                }
+            }
+
+            Text(isRecording
+                ? "Press the key or key combination you want to use. Press Escape to cancel."
+                : "Choose any key, function key, modifier, or key combination.")
+                .font(.caption)
+                .foregroundStyle(isRecording ? Color.accentColor : Color.secondary)
+        }
+        .padding(16)
+        .background(onboardingSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onDisappear { stopRecording() }
+    }
+
+    private func beginRecording() {
+        guard !isRecording else { return }
+        isRecording = true
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            if event.type == .keyDown, event.keyCode == 53 {
+                DispatchQueue.main.async { stopRecording() }
+                return nil
+            }
+            guard let capture = ShortcutCapture(event: event) else { return event }
+            DispatchQueue.main.async {
+                settings.setShortcut(
+                    keyCode: capture.keyCode,
+                    modifierFlagsRawValue: capture.modifierFlagsRawValue,
+                    displayName: capture.displayName
+                )
+                stopRecording()
+            }
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        eventMonitor = nil
+        isRecording = false
+    }
+}
+
+private struct ShortcutCapture {
+    let keyCode: Int64
+    let modifierFlagsRawValue: UInt64
+    let displayName: String
+
+    init?(event: NSEvent) {
+        let keyCode = Int64(event.keyCode)
+        if event.type == .flagsChanged {
+            guard let modifierName = Self.modifierName(for: keyCode) else { return nil }
+            self.keyCode = keyCode
+            modifierFlagsRawValue = 0
+            displayName = modifierName
+            return
+        }
+
+        guard event.type == .keyDown else { return nil }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard let keyName = Self.keyName(for: event), !keyName.isEmpty else { return nil }
+        self.keyCode = keyCode
+        modifierFlagsRawValue = UInt64(modifiers.rawValue)
+        displayName = Self.modifierPrefix(for: modifiers) + keyName
+    }
+
+    private static func modifierPrefix(for modifiers: NSEvent.ModifierFlags) -> String {
+        var prefix = ""
+        if modifiers.contains(.control) { prefix += "⌃" }
+        if modifiers.contains(.option) { prefix += "⌥" }
+        if modifiers.contains(.shift) { prefix += "⇧" }
+        if modifiers.contains(.command) { prefix += "⌘" }
+        return prefix
+    }
+
+    private static func keyName(for event: NSEvent) -> String? {
+        switch event.keyCode {
+        case 36: "Return"
+        case 48: "Tab"
+        case 49: "Space"
+        case 51: "Delete"
+        case 53: "Escape"
+        case 71: "Clear"
+        case 76: "Enter"
+        case 114: "Help"
+        case 115: "Home"
+        case 116: "Page Up"
+        case 117: "Forward Delete"
+        case 119: "End"
+        case 121: "Page Down"
+        case 122: "F1"
+        case 120: "F2"
+        case 99: "F3"
+        case 118: "F4"
+        case 96: "F5"
+        case 97: "F6"
+        case 98: "F7"
+        case 100: "F8"
+        case 101: "F9"
+        case 109: "F10"
+        case 103: "F11"
+        case 111: "F12"
+        case 105: "F13"
+        case 107: "F14"
+        case 113: "F15"
+        case 106: "F16"
+        case 64: "F17"
+        case 79: "F18"
+        case 80: "F19"
+        case 90: "F20"
+        case 123: "Left Arrow"
+        case 124: "Right Arrow"
+        case 125: "Down Arrow"
+        case 126: "Up Arrow"
+        default:
+            event.charactersIgnoringModifiers?.uppercased()
+        }
+    }
+
+    private static func modifierName(for keyCode: Int64) -> String? {
+        switch Int(keyCode) {
+        case 54: "Right Command"
+        case 55: "Left Command"
+        case 56: "Left Shift"
+        case 57: "Caps Lock"
+        case 58: "Left Option"
+        case 59: "Left Control"
+        case 60: "Right Shift"
+        case 61: "Right Option"
+        case 62: "Right Control"
+        case 63: "Function"
+        default: nil
+        }
+    }
 }

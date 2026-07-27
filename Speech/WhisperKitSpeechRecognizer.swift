@@ -12,6 +12,10 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     private var loadingModel: WhisperModel?
     private var liveWhisperKit: WhisperKit?
     private var partialTranscriptionTask: Task<Void, Never>?
+    private var inputDeviceID: UInt32?
+    private var liveInputDeviceID: UInt32?
+    private var liveAudioLevelHandler: (@Sendable (Float) -> Void)?
+    private var liveAudioLevelGeneration = 0
     private var livePreviewStartSample = 0
     private var rollingLiveHypothesis = RollingLiveHypothesis()
     private var livePauseDetector = LivePauseDetector()
@@ -25,6 +29,14 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
 
     init(modelStore: ModelStore = ModelStore()) {
         self.modelStore = modelStore
+    }
+
+    func setLiveAudioLevelHandler(_ handler: (@Sendable (Float) -> Void)?) async {
+        liveAudioLevelHandler = handler
+    }
+
+    func setInputDeviceID(_ inputDeviceID: UInt32?) async {
+        self.inputDeviceID = inputDeviceID
     }
 
     func transcribe(audioURL: URL, model: WhisperModel) async throws -> String {
@@ -48,8 +60,10 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
 
         let whisperKit = try await pipeline(for: model, allowingDownload: false)
         areLivePreviewsSuspended = false
+        liveInputDeviceID = inputDeviceID
         try startLiveCapture(
             with: whisperKit,
+            inputDeviceID: liveInputDeviceID,
             onPartialTranscription: onPartialTranscription,
             onPauseDetected: onPauseDetected
         )
@@ -75,6 +89,7 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
             areLivePreviewsSuspended = false
             try startLiveCapture(
                 with: whisperKit,
+                inputDeviceID: liveInputDeviceID,
                 onPartialTranscription: onPartialTranscription,
                 onPauseDetected: onPauseDetected
             )
@@ -88,6 +103,7 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
         areLivePreviewsSuspended = true
         try startLiveCapture(
             with: whisperKit,
+            inputDeviceID: liveInputDeviceID,
             onPartialTranscription: onPartialTranscription,
             onPauseDetected: onPauseDetected
         )
@@ -104,6 +120,8 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
 
         whisperKit.audioProcessor.stopRecording()
         liveWhisperKit = nil
+        liveInputDeviceID = nil
+        stopLiveAudioLevelPublishing()
 
         await stopPartialTranscriptionTask()
         areLivePreviewsSuspended = false
@@ -122,6 +140,8 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     func cancelLiveTranscription() async {
         liveWhisperKit?.audioProcessor.stopRecording()
         liveWhisperKit = nil
+        liveInputDeviceID = nil
+        stopLiveAudioLevelPublishing()
         await stopPartialTranscriptionTask()
         areLivePreviewsSuspended = false
         resetLivePreviewState()
@@ -264,11 +284,21 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
 
     private func startLiveCapture(
         with whisperKit: WhisperKit,
+        inputDeviceID: UInt32?,
         onPartialTranscription: @escaping @Sendable (String) -> Void,
         onPauseDetected: @escaping @Sendable () -> Void
     ) throws {
         resetLivePreviewState()
-        try whisperKit.audioProcessor.startRecordingLive(callback: nil)
+        liveAudioLevelGeneration &+= 1
+        let audioLevelGeneration = liveAudioLevelGeneration
+        try whisperKit.audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID) { [weak self] samples in
+            Task { [weak self] in
+                await self?.publishLiveAudioLevels(
+                    from: samples,
+                    generation: audioLevelGeneration
+                )
+            }
+        }
         liveWhisperKit = whisperKit
         partialTranscriptionTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -291,6 +321,66 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
         partialTranscriptionTask = nil
         partialTask?.cancel()
         await partialTask?.value
+    }
+
+    private func stopLiveAudioLevelPublishing() {
+        liveAudioLevelGeneration &+= 1
+        liveAudioLevelHandler = nil
+    }
+
+    /// WhisperKit supplies 100 ms audio buffers. Split each in two and release its levels 50 ms
+    /// apart, which makes the visualizer scroll at 20 fps without changing transcription's VAD
+    /// timing or opening a second microphone capture.
+    private func publishLiveAudioLevels(from samples: [Float], generation: Int) {
+        guard generation == liveAudioLevelGeneration,
+              liveWhisperKit != nil,
+              let handler = liveAudioLevelHandler,
+              !samples.isEmpty
+        else {
+            return
+        }
+
+        let half = max(1, samples.count / 2)
+        for index in 0..<2 {
+            let start = index * half
+            guard start < samples.count else { break }
+            let end = index == 1 ? samples.count : min(start + half, samples.count)
+            let level = waveformLevel(in: samples[start..<end])
+
+            guard index > 0 else {
+                handler(level)
+                continue
+            }
+            Task { [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                } catch {
+                    return
+                }
+                await self?.emitLiveAudioLevel(level, generation: generation)
+            }
+        }
+    }
+
+    private func emitLiveAudioLevel(_ level: Float, generation: Int) {
+        guard generation == liveAudioLevelGeneration,
+              let handler = liveAudioLevelHandler
+        else {
+            return
+        }
+        handler(level)
+    }
+
+    /// RMS reflects the sustained strength of each 50 ms audio slice. A brief waveform spike
+    /// can no longer make ordinary speech look like it has reached the preview's ceiling.
+    private func waveformLevel(in samples: ArraySlice<Float>) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        var sumOfSquares: Float = 0
+        for sample in samples {
+            sumOfSquares += sample * sample
+        }
+        let rootMeanSquare = (sumOfSquares / Float(samples.count)).squareRoot()
+        return min(1, rootMeanSquare * 4)
     }
 
     /// Long recordings are split at detected silence before decoding. Decode each chunk
