@@ -195,10 +195,20 @@ enum LiveTranscriptReconciler {
             return tail(after: targetWords[currentWords.count - 1], in: target, current: current)
         }
 
-        guard let finalWord = targetWords.last else { return "" }
-        let trailingPunctuation = String(target[finalWord.range.upperBound...])
-        guard !trailingPunctuation.isEmpty, !current.hasSuffix(trailingPunctuation) else { return "" }
-        return (current.last?.isWhitespace == true ? "\u{7F}" : "") + trailingPunctuation
+        guard let currentFinalWord = currentWords.last,
+              let finalWord = targetWords.last
+        else {
+            return ""
+        }
+
+        // When both passes contain the same words, their only possible difference is the
+        // decoration after the final word. Replace that decoration as a unit: a live preview
+        // can leave a space behind, or revise a comma to a period before the final pass. Merely
+        // appending the final decoration would otherwise produce output such as `word,.`.
+        let currentDecoration = String(current[currentFinalWord.range.upperBound...])
+        let finalDecoration = String(target[finalWord.range.upperBound...])
+        guard currentDecoration != finalDecoration else { return "" }
+        return String(repeating: "\u{7F}", count: currentDecoration.count) + finalDecoration
     }
 
     /// Returns the final word of the earliest longest in-order alignment. The earliest tie-break

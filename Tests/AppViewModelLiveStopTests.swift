@@ -68,6 +68,52 @@ final class AppViewModelLiveStopTests: XCTestCase {
         XCTAssertEqual(typedText(in: debugLog), "prior segment successor segment")
     }
 
+    func testPauseRolloverFailureCancelsTheSuccessorCapture() async {
+        let liveStarted = expectation(description: "live capture started")
+        let unexpectedPriorCaptureCancellation = expectation(description: "no prior capture is cancelled")
+        unexpectedPriorCaptureCancellation.isInverted = true
+        let successorCaptureCancelled = expectation(description: "successor capture cancelled")
+        let recognizer = RolloverFailingLiveRecognizer(
+            liveStarted: { liveStarted.fulfill() },
+            priorCaptureCancelled: { unexpectedPriorCaptureCancellation.fulfill() },
+            successorCaptureCancelled: { successorCaptureCancelled.fulfill() }
+        )
+        let debugLog = DebugLogStore()
+        let defaultsSuiteName = "AppViewModelLiveStopTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let settings = AppSettings(defaults: defaults)
+        settings.autoCapitalizeFirstSentence = false
+
+        let viewModel = AppViewModel(
+            settings: settings,
+            permissions: PermissionManager(),
+            recorder: AudioRecorder(),
+            recognizer: recognizer,
+            typingEngine: TypingEngine(emitter: CapturingKeyEmitter()),
+            shortcutMonitor: GlobalShortcutMonitor(),
+            debugLog: debugLog,
+            modelStore: ModelStore(),
+            requestMicrophonePermission: { true },
+            accessibilityPermissionState: { .granted }
+        )
+
+        viewModel.startDictation()
+        await fulfillment(of: [liveStarted], timeout: 1)
+        await waitUntil("dictation is recording") { viewModel.activity == .recording }
+        await fulfillment(of: [unexpectedPriorCaptureCancellation], timeout: 0.05)
+
+        recognizer.detectPause()
+        await fulfillment(of: [successorCaptureCancelled], timeout: 1)
+        await waitUntil("rollover error") {
+            if case .error = viewModel.activity { return true }
+            return false
+        }
+
+        XCTAssertEqual(debugLog.lastError, SpeechError.modelMissing(.tiny).localizedDescription)
+    }
+
     private func typedText(in debugLog: DebugLogStore) -> String {
         debugLog.typedEvents.reduce(into: "") { text, entry in
             switch entry.character {
@@ -89,6 +135,70 @@ final class AppViewModelLiveStopTests: XCTestCase {
         XCTAssertTrue(condition(), "Timed out waiting for \(description)")
     }
 
+}
+
+private final class RolloverFailingLiveRecognizer: LiveSpeechRecognizing, @unchecked Sendable {
+    private let lock = NSLock()
+    private let liveStarted: () -> Void
+    private let priorCaptureCancelled: () -> Void
+    private let successorCaptureCancelled: () -> Void
+    private var onPauseDetected: (@Sendable () -> Void)?
+    private var shouldReportCancellation = false
+
+    init(
+        liveStarted: @escaping () -> Void,
+        priorCaptureCancelled: @escaping () -> Void,
+        successorCaptureCancelled: @escaping () -> Void
+    ) {
+        self.liveStarted = liveStarted
+        self.priorCaptureCancelled = priorCaptureCancelled
+        self.successorCaptureCancelled = successorCaptureCancelled
+    }
+
+    func detectPause() {
+        lock.withLock {
+            shouldReportCancellation = true
+            onPauseDetected?()
+        }
+    }
+
+    func transcribe(audioURL: URL, model: WhisperModel) async throws -> String { "" }
+
+    func install(
+        model: WhisperModel,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws {}
+
+    func startLiveTranscription(
+        model: WhisperModel,
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
+    ) async throws {
+        lock.withLock { self.onPauseDetected = onPauseDetected }
+        liveStarted()
+    }
+
+    func rolloverLiveTranscription(
+        onPartialTranscription: @escaping @Sendable (String) -> Void,
+        onPauseDetected: @escaping @Sendable () -> Void
+    ) async throws -> String {
+        throw SpeechError.modelMissing(.tiny)
+    }
+
+    func stopAndFinalizeLiveTranscription() async throws -> String { "" }
+
+    func cancelLiveTranscription() async {
+        let report = lock.withLock { () -> Bool in
+            guard shouldReportCancellation else { return false }
+            shouldReportCancellation = false
+            return true
+        }
+        if report {
+            successorCaptureCancelled()
+        } else {
+            priorCaptureCancelled()
+        }
+    }
 }
 
 private final class PausingLiveRecognizer: LiveSpeechRecognizing, @unchecked Sendable {

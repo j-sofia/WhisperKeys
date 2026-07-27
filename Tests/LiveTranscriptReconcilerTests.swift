@@ -127,6 +127,36 @@ final class LiveTranscriptReconcilerTests: XCTestCase {
         XCTAssertEqual(edit, "")
     }
 
+    func testFinalEditRemovesTrailingLiveWhitespaceWhenFinalPassHasNoDecoration() {
+        let edit = LiveTranscriptReconciler.finalEdit(
+            from: "the engineering community ",
+            to: "the engineering community"
+        )
+
+        XCTAssertEqual(edit, "\u{7F}")
+        XCTAssertEqual(applying(edit, to: "the engineering community "), "the engineering community")
+    }
+
+    func testFinalEditReplacesLivePunctuationWhenTheFinalPassRevisesIt() {
+        let edit = LiveTranscriptReconciler.finalEdit(
+            from: "the engineering community, ",
+            to: "the engineering community."
+        )
+
+        XCTAssertEqual(edit, "\u{7F}\u{7F}.")
+        XCTAssertEqual(applying(edit, to: "the engineering community, "), "the engineering community.")
+    }
+
+    func testFinalEditRemovesLiveSpaceBeforeAppendingReturn() {
+        let edit = LiveTranscriptReconciler.finalEdit(
+            from: "the engineering community ",
+            to: "the engineering community\n"
+        )
+
+        XCTAssertEqual(edit, "\u{7F}\n")
+        XCTAssertEqual(applying(edit, to: "the engineering community "), "the engineering community\n")
+    }
+
     func testFinalEditMatchesCaseAndDiacriticChangesWithoutRepeatingWords() {
         let edit = LiveTranscriptReconciler.finalEdit(
             from: "CAFÉ ",

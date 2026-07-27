@@ -334,6 +334,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func cancelCurrentTypingAndRecognition() {
+        let shouldCancelLiveCapture = activity == .recording || activity == .transcribing
         typingEngine.cancel()
         typingBatchID = nil
         transcriptionTask?.cancel()
@@ -343,7 +344,8 @@ final class AppViewModel: ObservableObject {
         pausedSegmentTypingBatchID = nil
         defersNextSegmentTyping = false
         pendingLivePause = false
-        if let liveRecognizer = recognizer as? any LiveSpeechRecognizing {
+        if let liveRecognizer = recognizer as? any LiveSpeechRecognizing,
+           shouldCancelLiveCapture {
             Task { await liveRecognizer.cancelLiveTranscription() }
         } else if activity == .recording {
             _ = recorder.stop()
@@ -432,6 +434,12 @@ final class AppViewModel: ObservableObject {
                 // A noise-only segment should not interrupt the next recording.
                 if self.activity == .recording { self.resumeNextSegmentTyping() }
             } catch {
+                // `rolloverLiveTranscription` has already started the successor capture before
+                // it finalizes the paused segment. A final-pass error must therefore stop that
+                // successor as well; otherwise the menu reports an error while the microphone
+                // continues recording in the background.
+                await liveRecognizer.cancelLiveTranscription()
+                guard !Task.isCancelled else { return }
                 self.debugLog.setError(error)
                 self.activity = .error(error.localizedDescription)
             }

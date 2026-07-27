@@ -25,9 +25,6 @@ let package = Package(
                 "README.md",
                 "SECURITY.md",
                 "Tests",
-                // The Xcode project has a mirrored application bundle beneath the package
-                // root. Exclude it so SwiftPM does not compile every source file twice.
-                "WhisperKeys",
                 "WhisperKeys.entitlements",
                 "WhisperKeys-Info.plist",
                 "WhisperKeys.xcodeproj"
