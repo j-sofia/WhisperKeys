@@ -8,7 +8,7 @@ struct WhisperKeysApp: App {
     init() {
         let viewModel = AppViewModel()
         _viewModel = StateObject(wrappedValue: viewModel)
-        AppRuntime.viewModel = viewModel
+        appDelegate.configure(viewModel: viewModel)
         viewModel.configure()
     }
 
