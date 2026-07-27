@@ -10,7 +10,7 @@ WhisperKeys requires macOS 14 or later on an Apple Silicon Mac.
 
 ## Installation
 
-1. Open the [WhisperKeys Releases page](https://github.com/J-S-O-F/Transcription-App/releases) and download the latest `WhisperKeys.zip`.
+1. Open the [WhisperKeys Releases page](https://github.com/j-sofia/WhisperKeys/releases) and download the latest `WhisperKeys.zip`.
 2. Double-click the ZIP, then move `WhisperKeys.app` to `/Applications`.
 3. Open WhisperKeys. A signed and notarized release will open normally.
 4. In the setup window, choose a local model, select a shortcut, and grant Microphone, Accessibility, and Input Monitoring permissions.
