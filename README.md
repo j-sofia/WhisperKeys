@@ -42,6 +42,12 @@ The typed text is sent one character at a time as a key-down and key-up event, m
 
 Start a new dictation at any time to cancel the current transcription and typing. While recording, the menu also shows the current preview.
 
+WhisperKeys sends modifier keys (including Shift) as their own down/up events before sending the dependent character. This matters for virtual desktops, which may not honor a modifier flag attached only to a character event.
+
+### Microsoft Windows App
+
+If capital letters or shifted punctuation are lowercase in a Windows App session, open **Connections → Keyboard Mode** while connected and choose **Unicode**. The Windows App's scancode mode can drop modifiers on programmatically generated macOS key events; Unicode mode translates them correctly. WhisperKeys also uses discrete modifier transitions with a short compatibility pause to make the events reliable in VMs.
+
 Some remote clients may still choose to ignore synthetic keyboard events. The target app or client must accept system-level keyboard input.
 
 ## Architecture

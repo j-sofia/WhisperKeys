@@ -78,6 +78,9 @@ struct SettingsView: View {
                 Stepper("Extra delay between words: \(settings.wordDelayMilliseconds) ms", value: $settings.wordDelayMilliseconds, in: 0...5_000, step: 5)
                 Toggle("Auto-capitalize first sentence", isOn: $settings.autoCapitalizeFirstSentence)
                 Toggle("Press Enter after transcription", isOn: $settings.pressEnterAfterTranscription)
+                Text("For Microsoft Windows App connections, choose Connections → Keyboard Mode → Unicode. Its scancode mode can discard synthetic Shift and Option input.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Activation") {
