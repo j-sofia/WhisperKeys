@@ -18,7 +18,7 @@ Because the app uses the Hardened Runtime, its signed target includes the `com.a
 
 ## Installation
 
-1. Open the [WhisperKeys Releases page](https://github.com/J-S-O-F/Transcription-App/releases) and download the latest `WhisperKeys.zip` file.
+1. Open the [WhisperKeys Releases page](https://github.com/j-sofia/Transcription-App/releases) and download the latest `WhisperKeys.zip` file.
 2. Double-click the ZIP file, then move `WhisperKeys.app` to `/Applications`.
 3. Open the app. A signed and notarized release opens normally.
 4. On first launch, follow the setup window to download a local model and grant the required Microphone, Accessibility, and Input Monitoring permissions.
