@@ -3,9 +3,16 @@ import AudioToolbox
 import CoreAudio
 import Foundation
 
+protocol AudioRecording: AnyObject {
+    func setAudioLevelHandler(_ handler: (@Sendable (Float) -> Void)?)
+    @discardableResult
+    func start(inputDeviceID: UInt32?) throws -> URL
+    func stop() -> URL?
+}
+
 /// Fallback recorder for recognizers that support only file-based transcription.
 /// WhisperKit's live recognizer captures directly through its own 16 kHz audio processor.
-final class AudioRecorder {
+final class AudioRecorder: AudioRecording {
     private let engine = AVAudioEngine()
     private let audioLevelHandlerLock = NSLock()
     private var outputFile: AVAudioFile?

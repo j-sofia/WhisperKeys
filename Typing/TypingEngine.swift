@@ -13,17 +13,20 @@ final class TypingEngine {
     private let mapper: KeyboardMapper
     private let emitter: KeyEventEmitting
     private let focusedApplicationTypingConfigurationAdjuster: FocusedApplicationTypingConfigurationAdjusting
+    private let clock: any ClockProviding
     private let stateLock = NSLock()
     private var activeBatch: TypingBatch?
 
     init(
         mapper: KeyboardMapper = KeyboardMapper(),
         emitter: KeyEventEmitting = CGEventKeyEmitter(),
-        focusedApplicationTypingConfigurationAdjuster: FocusedApplicationTypingConfigurationAdjusting = WindowsAppTypingConfigurationAdjuster()
+        focusedApplicationTypingConfigurationAdjuster: FocusedApplicationTypingConfigurationAdjusting = WindowsAppTypingConfigurationAdjuster(),
+        clock: any ClockProviding = SystemClock.shared
     ) {
         self.mapper = mapper
         self.emitter = emitter
         self.focusedApplicationTypingConfigurationAdjuster = focusedApplicationTypingConfigurationAdjuster
+        self.clock = clock
     }
 
     /// Replaces any text still waiting to be typed and begins a new batch.
@@ -103,7 +106,7 @@ final class TypingEngine {
     ) {
         defer { finishOperation(in: batch) }
 
-        let started = Date()
+        let started = clock.now
         let token = batch.token
         guard !token.isCancelled, isCurrent(batch) else { return }
         guard !strokes.isEmpty else {
@@ -173,8 +176,8 @@ final class TypingEngine {
             character: printable(character),
             keyCode: stroke.keyCode,
             modifierDescription: modifierDescription(stroke.modifiers),
-            elapsedMilliseconds: Date().timeIntervalSince(started) * 1_000,
-            timestamp: Date()
+            elapsedMilliseconds: clock.now.timeIntervalSince(started) * 1_000,
+            timestamp: clock.now
         )
     }
 
@@ -182,7 +185,7 @@ final class TypingEngine {
         var remaining = max(0, milliseconds)
         while remaining > 0 && !token.isCancelled {
             let slice = min(remaining, 2)
-            Thread.sleep(forTimeInterval: Double(slice) / 1_000)
+            clock.sleep(for: Double(slice) / 1_000)
             remaining -= slice
         }
     }

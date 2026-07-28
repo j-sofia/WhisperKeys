@@ -6,7 +6,7 @@ import WhisperKit
 /// The saved model is installed when the app opens. Normal dictation initializes WhisperKit with
 /// `download: false`, so it never turns a dictation into a network request when a model is absent.
 actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
-    private let modelStore: ModelStore
+    private let modelStore: any ModelStoring
     private var pipeline: WhisperKit?
     private var loadedModel: WhisperModel?
     private var loadingModel: WhisperModel?
@@ -27,7 +27,7 @@ actor WhisperKitSpeechRecognizer: LiveSpeechRecognizing {
     private let livePreviewMaximumSamples = WhisperKit.sampleRate * 24
     private let livePreviewAdvanceSamples = WhisperKit.sampleRate * 6
 
-    init(modelStore: ModelStore = ModelStore()) {
+    init(modelStore: any ModelStoring = ModelStore()) {
         self.modelStore = modelStore
     }
 

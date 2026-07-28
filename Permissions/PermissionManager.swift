@@ -28,10 +28,37 @@ enum PermissionResetError: LocalizedError {
 }
 
 @MainActor
-final class PermissionManager: ObservableObject {
+protocol PermissionManaging: AnyObject {
+    var microphone: PermissionState { get }
+    var accessibility: PermissionState { get }
+    var inputMonitoring: PermissionState { get }
+    var changes: AnyPublisher<Void, Never> { get }
+
+    func refresh()
+    func requestMicrophone() async -> Bool
+    func requestAccessibility()
+    func requestInputMonitoring()
+    func resetAccessibilityAndInputMonitoring() throws
+    func openAccessibilityPrivacySettings()
+    func openInputMonitoringPrivacySettings()
+    func openMicrophonePrivacySettings()
+}
+
+extension PermissionManaging {
+    var changes: AnyPublisher<Void, Never> {
+        Empty().eraseToAnyPublisher()
+    }
+}
+
+@MainActor
+final class PermissionManager: ObservableObject, PermissionManaging {
     @Published private(set) var microphone: PermissionState = .notDetermined
     @Published private(set) var accessibility: PermissionState = .notDetermined
     @Published private(set) var inputMonitoring: PermissionState = .notDetermined
+
+    var changes: AnyPublisher<Void, Never> {
+        objectWillChange.eraseToAnyPublisher()
+    }
 
     init() { refresh() }
 

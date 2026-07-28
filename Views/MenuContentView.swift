@@ -22,6 +22,11 @@ struct MenuContentView: View {
 
             primaryAction
 
+            if case .error(let error) = viewModel.activity {
+                errorDetails(error)
+                    .padding(.top, 10)
+            }
+
             if viewModel.activity == .recording,
                !viewModel.debugLog.recognizedText.isEmpty {
                 liveTranscript
@@ -151,13 +156,45 @@ struct MenuContentView: View {
                 tint: .accentColor,
                 action: onStartDictation
             )
-        case .error:
-            actionButton(
-                "Try Dictation Again",
-                symbol: "mic.fill",
-                tint: .accentColor,
-                action: onStartDictation
-            )
+        case .error(let error):
+            if let recovery = error.primaryRecoveryAction {
+                actionButton(
+                    recovery.title,
+                    symbol: recovery.symbolName,
+                    tint: .accentColor,
+                    action: { perform(recovery) }
+                )
+            } else {
+                actionButton(
+                    "Open Settings",
+                    symbol: "gearshape",
+                    tint: .accentColor,
+                    action: AppDelegate.presentSettings
+                )
+            }
+        }
+    }
+
+    private func errorDetails(_ error: AppError) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(error.category.displayName)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.red)
+            Text(error.localizedDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.red.opacity(0.075), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func perform(_ recovery: AppRecoveryAction) {
+        if recovery == .retryDictation {
+            onStartDictation()
+        } else {
+            viewModel.performRecoveryAction(recovery)
         }
     }
 
@@ -284,8 +321,8 @@ struct MenuContentView: View {
             ("Typing…", "keyboard", .orange)
         case .installingModel:
             ("Setting things up…", "arrow.down", .accentColor)
-        case .error(let message):
-            (message, "exclamationmark", .red)
+        case .error(let error):
+            (error.title, "exclamationmark", .red)
         }
     }
 

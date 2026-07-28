@@ -5,7 +5,7 @@ import WhisperKit
 struct SettingsView: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject private var settings: AppSettings
-    @ObservedObject private var permissions: PermissionManager
+    private var permissions: any PermissionManaging { viewModel.permissions }
     @Environment(\.dismiss) private var dismiss
     @State private var permissionResetError: String?
     @State private var permissionRestartError: String?
@@ -22,7 +22,6 @@ struct SettingsView: View {
         self.viewModel = viewModel
         self.onDismiss = onDismiss
         _settings = ObservedObject(wrappedValue: viewModel.settings)
-        _permissions = ObservedObject(wrappedValue: viewModel.permissions)
     }
 
     var body: some View {

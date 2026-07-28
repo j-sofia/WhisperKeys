@@ -3,6 +3,191 @@ import Darwin
 import Foundation
 import SwiftUI
 
+enum AppErrorCategory: String, Equatable {
+    case permission
+    case microphone
+    case model
+    case transcription
+    case typing
+    case applicationFocus
+    case configuration
+    case unexpected
+
+    var displayName: String {
+        switch self {
+        case .permission: "Permission"
+        case .microphone: "Microphone"
+        case .model: "Model"
+        case .transcription: "Transcription"
+        case .typing: "Typing"
+        case .applicationFocus: "Application Focus"
+        case .configuration: "Configuration"
+        case .unexpected: "Unexpected"
+        }
+    }
+}
+
+/// Recovery choices stay typed until the UI handles them, instead of being folded
+/// into an error string that cannot tell the app what to do next.
+enum AppRecoveryAction: String, Equatable, Identifiable {
+    case openMicrophoneSettings
+    case openAccessibilitySettings
+    case chooseAnotherMicrophone
+    case retryModel
+    case retryDictation
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .openMicrophoneSettings, .openAccessibilitySettings:
+            "Open Settings"
+        case .chooseAnotherMicrophone:
+            "Choose Another Microphone"
+        case .retryModel:
+            "Retry Model"
+        case .retryDictation:
+            "Try Dictation Again"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .openMicrophoneSettings, .openAccessibilitySettings:
+            "gearshape"
+        case .chooseAnotherMicrophone:
+            "mic.badge.plus"
+        case .retryModel:
+            "arrow.clockwise"
+        case .retryDictation:
+            "mic.fill"
+        }
+    }
+}
+
+enum AppError: LocalizedError, Equatable {
+    case microphonePermissionRequired
+    case accessibilityPermissionRequired
+    case microphoneUnavailable
+    case modelUnavailable(WhisperModel)
+    case modelInstallationFailed(WhisperModel, details: String)
+    case transcriptionFailed(details: String)
+    case typingFailed(details: String)
+    case focusRestorationFailed(applicationName: String)
+    case configuration(details: String)
+    case unexpected(details: String)
+
+    var category: AppErrorCategory {
+        switch self {
+        case .microphonePermissionRequired, .accessibilityPermissionRequired:
+            .permission
+        case .microphoneUnavailable:
+            .microphone
+        case .modelUnavailable, .modelInstallationFailed:
+            .model
+        case .transcriptionFailed:
+            .transcription
+        case .typingFailed:
+            .typing
+        case .focusRestorationFailed:
+            .applicationFocus
+        case .configuration:
+            .configuration
+        case .unexpected:
+            .unexpected
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .microphonePermissionRequired:
+            "Microphone access needed"
+        case .accessibilityPermissionRequired:
+            "Accessibility access needed"
+        case .microphoneUnavailable:
+            "Microphone unavailable"
+        case .modelUnavailable:
+            "Model not ready"
+        case .modelInstallationFailed:
+            "Model installation failed"
+        case .transcriptionFailed:
+            "Transcription failed"
+        case .typingFailed:
+            "Typing failed"
+        case .focusRestorationFailed:
+            "Could not restore focus"
+        case .configuration:
+            "Configuration problem"
+        case .unexpected:
+            "Something went wrong"
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .microphonePermissionRequired:
+            "Allow microphone access before starting dictation."
+        case .accessibilityPermissionRequired:
+            "Allow Accessibility so WhisperKeys can type into the focused app."
+        case .microphoneUnavailable:
+            "The selected microphone is unavailable. Choose another input device."
+        case .modelUnavailable(let model):
+            "The \(model.displayName) Whisper model is not ready."
+        case .modelInstallationFailed(let model, let details):
+            "WhisperKeys could not prepare the \(model.displayName) model. \(details)"
+        case .transcriptionFailed(let details), .typingFailed(let details),
+             .configuration(let details), .unexpected(let details):
+            details
+        case .focusRestorationFailed(let applicationName):
+            "WhisperKeys could not return focus to \(applicationName)."
+        }
+    }
+
+    var recoveryActions: [AppRecoveryAction] {
+        switch self {
+        case .microphonePermissionRequired:
+            [.openMicrophoneSettings]
+        case .accessibilityPermissionRequired:
+            [.openAccessibilitySettings]
+        case .microphoneUnavailable:
+            [.chooseAnotherMicrophone]
+        case .modelUnavailable, .modelInstallationFailed:
+            [.retryModel]
+        case .transcriptionFailed, .typingFailed, .focusRestorationFailed, .unexpected:
+            [.retryDictation]
+        case .configuration:
+            []
+        }
+    }
+
+    var primaryRecoveryAction: AppRecoveryAction? { recoveryActions.first }
+
+    static func recording(_ error: Error) -> AppError {
+        if let speechError = error as? SpeechError {
+            switch speechError {
+            case .microphoneUnavailable:
+                return .microphoneUnavailable
+            case .modelMissing(let model):
+                return .modelUnavailable(model)
+            case .whisperKitUnavailable:
+                return .configuration(details: speechError.localizedDescription)
+            case .noRecording, .modelInstallationInProgress,
+                 .liveTranscriptionInProgress, .emptyTranscription:
+                return .transcriptionFailed(details: speechError.localizedDescription)
+            }
+        }
+        return .transcriptionFailed(details: error.localizedDescription)
+    }
+
+    static func typing(_ error: Error) -> AppError {
+        if let typingError = error as? TypingError,
+           case .accessibilityPermissionRequired = typingError {
+            return .accessibilityPermissionRequired
+        }
+        return .typingFailed(details: error.localizedDescription)
+    }
+}
+
 enum AppActivity: Equatable {
     case idle
     case recording
@@ -10,7 +195,7 @@ enum AppActivity: Equatable {
     case reviewing
     case typing
     case installingModel
-    case error(String)
+    case error(AppError)
 
     var displayName: String {
         switch self {
@@ -20,7 +205,7 @@ enum AppActivity: Equatable {
         case .reviewing: "Review transcription"
         case .typing: "Typing…"
         case .installingModel: "Installing local model…"
-        case .error(let message): message
+        case .error(let error): error.title
         }
     }
 }

@@ -4,8 +4,8 @@ import SwiftUI
 struct OnboardingView: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject private var settings: AppSettings
-    @ObservedObject private var permissions: PermissionManager
     private let onFinish: () -> Void
+    private var permissions: any PermissionManaging { viewModel.permissions }
 
     @State private var step: OnboardingStep
     @State private var modelDownloadRequested = false
@@ -20,7 +20,6 @@ struct OnboardingView: View {
         self.viewModel = viewModel
         self.onFinish = onFinish
         _settings = ObservedObject(wrappedValue: viewModel.settings)
-        _permissions = ObservedObject(wrappedValue: viewModel.permissions)
         _step = State(
             initialValue: OnboardingStep(rawValue: viewModel.settings.onboardingResumeStep) ?? .welcome
         )
@@ -215,9 +214,16 @@ struct OnboardingView: View {
                     .foregroundStyle(.green)
                 .padding(16)
                 .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            } else if case .error(let message) = viewModel.activity {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
+            } else if case .error(let error) = viewModel.activity {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                    if let recovery = error.primaryRecoveryAction {
+                        Button(recovery.title) {
+                            viewModel.performRecoveryAction(recovery)
+                        }
+                    }
+                }
+                .foregroundStyle(.red)
                 .padding(16)
                 .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
@@ -378,11 +384,19 @@ struct OnboardingView: View {
                     Text("Please wait while the model loads.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else if case .error(let message) = viewModel.activity {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .lineLimit(2)
+                } else if case .error(let error) = viewModel.activity {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(error.localizedDescription)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                        if let recovery = error.primaryRecoveryAction {
+                            Button(recovery.title) {
+                                viewModel.performRecoveryAction(recovery)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
                 } else {
                     Text("Tip: leave this field focused before you stop.")
                         .font(.caption)

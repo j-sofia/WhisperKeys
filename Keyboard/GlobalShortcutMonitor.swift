@@ -2,9 +2,48 @@ import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 
+/// Supplies wall-clock and monotonic time, blocking waits, and delayed main-thread work.
+/// Keeping these operations together makes timing-sensitive behavior deterministic in tests.
+protocol ClockProviding: AnyObject {
+    var now: Date { get }
+    var uptime: TimeInterval { get }
+    func sleep(for interval: TimeInterval)
+    func scheduleOnMain(after interval: TimeInterval, _ action: @escaping () -> Void)
+}
+
+final class SystemClock: ClockProviding {
+    static let shared = SystemClock()
+
+    private init() {}
+
+    var now: Date { Date() }
+    var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    func sleep(for interval: TimeInterval) {
+        Thread.sleep(forTimeInterval: interval)
+    }
+
+    func scheduleOnMain(after interval: TimeInterval, _ action: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: action)
+    }
+}
+
+protocol ShortcutMonitoring: AnyObject {
+    var onAction: (() -> Void)? { get set }
+    var onHoldStarted: (() -> Void)? { get set }
+    var onHoldEnded: (() -> Void)? { get set }
+
+    func start(
+        shortcut: ShortcutConfiguration,
+        activationMode: ShortcutActivationMode,
+        doublePressIntervalMilliseconds: Int
+    ) throws
+    func stop()
+}
+
 /// Observes a recorded global shortcut without modifying or suppressing the original event.
 /// Listening requires Input Monitoring permission, while emitted key events require Accessibility.
-final class GlobalShortcutMonitor {
+final class GlobalShortcutMonitor: ShortcutMonitoring {
     var onAction: (() -> Void)?
     var onHoldStarted: (() -> Void)?
     var onHoldEnded: (() -> Void)?
@@ -15,7 +54,12 @@ final class GlobalShortcutMonitor {
     private var activationMode: ShortcutActivationMode = .doublePress
     private var doublePressInterval: TimeInterval = 0.35
     private var shortcutIsDown = false
-    private var lastShortcutKeyDown: TimeInterval = 0
+    private var lastShortcutKeyDown: TimeInterval?
+    private let clock: any ClockProviding
+
+    init(clock: any ClockProviding = SystemClock.shared) {
+        self.clock = clock
+    }
 
     func start(
         shortcut: ShortcutConfiguration,
@@ -63,7 +107,7 @@ final class GlobalShortcutMonitor {
         eventTap = nil
         shortcutConfiguration = nil
         shortcutIsDown = false
-        lastShortcutKeyDown = 0
+        lastShortcutKeyDown = nil
     }
 
     private func handle(type: CGEventType, event: CGEvent) {
@@ -123,9 +167,10 @@ final class GlobalShortcutMonitor {
         case .singlePress:
             deliverAction()
         case .doublePress:
-            let now = ProcessInfo.processInfo.systemUptime
-            if now - lastShortcutKeyDown <= doublePressInterval {
-                lastShortcutKeyDown = 0
+            let now = clock.uptime
+            if let lastShortcutKeyDown,
+               now - lastShortcutKeyDown <= doublePressInterval {
+                self.lastShortcutKeyDown = nil
                 deliverAction()
             } else {
                 lastShortcutKeyDown = now

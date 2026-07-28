@@ -1,6 +1,13 @@
 import AppKit
 import Foundation
 
+protocol ModelStoring {
+    var modelsDirectory: URL { get }
+    func openInFinder()
+    func removeIncompleteDownloads()
+    func removeAllLocalData() throws
+}
+
 /// Owns the directories where WhisperKeys keeps data on the local Mac.
 /// Keeping the root in one place makes it possible to remove every app-owned file
 /// without touching anything outside WhisperKeys' Application Support directory.
@@ -41,7 +48,7 @@ struct LocalDataStore {
     }
 }
 
-struct ModelStore {
+struct ModelStore: ModelStoring {
     private let localDataStore: LocalDataStore
 
     var modelsDirectory: URL { localDataStore.modelsDirectory }
