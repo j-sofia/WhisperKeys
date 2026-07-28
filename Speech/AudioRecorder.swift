@@ -7,12 +7,9 @@ import Foundation
 /// WhisperKit's live recognizer captures directly through its own 16 kHz audio processor.
 final class AudioRecorder {
     private let engine = AVAudioEngine()
-    private let recordingOperationLock = NSRecursiveLock()
-    private let recordingStateLock = NSLock()
     private let audioLevelHandlerLock = NSLock()
     private var outputFile: AVAudioFile?
     private var outputURL: URL?
-    private var recordingWriteError: Error?
     private var audioLevelHandler: (@Sendable (Float) -> Void)?
 
     /// Receives a normalized microphone level for every captured audio buffer. The callback is
@@ -25,9 +22,6 @@ final class AudioRecorder {
     }
 
     func start(inputDeviceID: UInt32? = nil) throws -> URL {
-        recordingOperationLock.lock()
-        defer { recordingOperationLock.unlock() }
-
         stopAndDiscardIfNeeded()
 
         let input = engine.inputNode
@@ -46,29 +40,20 @@ final class AudioRecorder {
             commonFormat: .pcmFormatFloat32,
             interleaved: false
         )
-        recordingStateLock.lock()
         outputFile = file
         outputURL = url
-        recordingWriteError = nil
-        recordingStateLock.unlock()
 
         input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [weak self] buffer, _ in
             self?.publishAudioLevel(from: buffer)
-            self?.writeRecordingBuffer(buffer)
+            do {
+                try self?.outputFile?.write(from: buffer)
+            } catch {
+                // A later stop/transcribe reports an unusable recording. AVAudioEngine's
+                // tap callback cannot safely present UI from this realtime audio thread.
+            }
         }
         engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            recordingStateLock.lock()
-            outputFile = nil
-            outputURL = nil
-            recordingWriteError = nil
-            recordingStateLock.unlock()
-            try? FileManager.default.removeItem(at: url)
-            throw error
-        }
+        try engine.start()
         return url
     }
 
@@ -115,46 +100,13 @@ final class AudioRecorder {
         handler(min(1, rootMeanSquare * 4))
     }
 
-    private func writeRecordingBuffer(_ buffer: AVAudioPCMBuffer) {
-        recordingStateLock.lock()
-        defer { recordingStateLock.unlock() }
-
-        guard recordingWriteError == nil, let outputFile else { return }
-
-        do {
-            try outputFile.write(from: buffer)
-        } catch {
-            // The tap callback runs on AVAudioEngine's realtime thread, where presenting or
-            // throwing is not possible. Preserve the first write failure so stop() can report
-            // the recording as unavailable instead of returning a corrupt/partial file URL.
-            recordingWriteError = error
-        }
-    }
-
     func stop() -> URL? {
-        recordingOperationLock.lock()
-        defer { recordingOperationLock.unlock() }
-
-        recordingStateLock.lock()
-        let hasRecording = outputURL != nil
-        recordingStateLock.unlock()
-
-        guard engine.isRunning || hasRecording else { return nil }
+        guard engine.isRunning || outputURL != nil else { return nil }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-
-        recordingStateLock.lock()
         let url = outputURL
-        let writeError = recordingWriteError
         outputFile = nil
         outputURL = nil
-        recordingWriteError = nil
-        recordingStateLock.unlock()
-
-        if writeError != nil, let url {
-            try? FileManager.default.removeItem(at: url)
-            return nil
-        }
         return url
     }
 
