@@ -19,7 +19,6 @@ final class AppViewModel: ObservableObject {
 
     private let recorder: AudioRecorder
     private let recognizer: SpeechRecognizing
-    private let liveRecognizer: (any LiveSpeechRecognizing)?
     private let typingEngine: TypingEngine
     private let shortcutMonitor: GlobalShortcutMonitor
     private let inputDevicePolicy: CoreAudioInputDevicePolicy
@@ -31,9 +30,6 @@ final class AppViewModel: ObservableObject {
     private let stopSound = NSSound(named: NSSound.Name("Pop"))
     private var transcriptionTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
-    private var liveCancellationTask: Task<Void, Never>?
-    private var modelInstallationTask: Task<Void, Never>?
-    private var dictationSessionGeneration = 0
     private var hasStartedInitialModelInstallation = false
     private var liveTypedText = ""
     private var previousLiveHypothesis = ""
@@ -64,9 +60,7 @@ final class AppViewModel: ObservableObject {
         self.permissions = PermissionManager()
         self.recorder = AudioRecorder()
         let modelStore = ModelStore()
-        let recognizer = WhisperKitSpeechRecognizer(modelStore: modelStore)
-        self.recognizer = recognizer
-        self.liveRecognizer = recognizer as? any LiveSpeechRecognizing
+        self.recognizer = WhisperKitSpeechRecognizer(modelStore: modelStore)
         self.typingEngine = TypingEngine()
         self.shortcutMonitor = GlobalShortcutMonitor()
         self.inputDevicePolicy = CoreAudioInputDevicePolicy()
@@ -105,7 +99,6 @@ final class AppViewModel: ObservableObject {
         self.permissions = permissions
         self.recorder = recorder
         self.recognizer = recognizer
-        self.liveRecognizer = recognizer as? any LiveSpeechRecognizing
         self.typingEngine = typingEngine
         self.shortcutMonitor = shortcutMonitor
         self.inputDevicePolicy = inputDevicePolicy
@@ -196,8 +189,6 @@ final class AppViewModel: ObservableObject {
     func startDictation() {
         guard !isShuttingDown, activity != .installingModel else { return }
         cancelCurrentTypingAndRecognition()
-        dictationSessionGeneration &+= 1
-        let sessionGeneration = dictationSessionGeneration
         isStartingDictation = true
         activeTranscriptionMode = settings.transcriptionMode
         dictationTargetApplication = frontmostApplication()
@@ -206,14 +197,11 @@ final class AppViewModel: ObservableObject {
         startTask?.cancel()
         startTask = Task { [weak self] in
             guard let self else { return }
-            await self.liveCancellationTask?.value
-            guard self.isCurrentDictationSession(sessionGeneration), !Task.isCancelled else { return }
             guard await self.requestMicrophonePermission(), !Task.isCancelled else {
                 self.isStartingDictation = false
                 if !Task.isCancelled { self.activity = .error("Microphone permission is required.") }
                 return
             }
-            guard self.isCurrentDictationSession(sessionGeneration) else { return }
             guard self.accessibilityPermissionState() == .granted else {
                 self.isStartingDictation = false
                 self.permissions.requestAccessibility()
@@ -221,7 +209,7 @@ final class AppViewModel: ObservableObject {
                 return
             }
 
-            if let liveRecognizer = self.liveRecognizer {
+            if let liveRecognizer = self.recognizer as? any LiveSpeechRecognizing {
                 do {
                     self.resetLiveTypingState()
                     let effectiveInputDeviceID = self.inputDevicePolicy.effectiveInputDeviceID(
@@ -237,20 +225,19 @@ final class AppViewModel: ObservableObject {
                         model: self.settings.selectedModel,
                         onPartialTranscription: { [weak self] transcription in
                             DispatchQueue.main.async {
-                                self?.receiveLivePartial(transcription, sessionGeneration: sessionGeneration)
+                                self?.receiveLivePartial(transcription)
                             }
                         },
                         onPauseDetected: { [weak self] in
-                            DispatchQueue.main.async { self?.handleLivePause(sessionGeneration: sessionGeneration) }
+                            DispatchQueue.main.async { self?.handleLivePause() }
                         }
                     )
-                    if Task.isCancelled || !self.isCurrentDictationSession(sessionGeneration) {
+                    if Task.isCancelled {
                         await liveRecognizer.cancelLiveTranscription()
                     } else {
-                        self.recordingDidStart(sessionGeneration: sessionGeneration)
+                        self.recordingDidStart()
                     }
                 } catch {
-                    guard self.isCurrentDictationSession(sessionGeneration) else { return }
                     self.isStartingDictation = false
                     self.debugLog.setError(error)
                     self.activity = .error(error.localizedDescription)
@@ -268,14 +255,13 @@ final class AppViewModel: ObservableObject {
                     for: self.settings.inputDeviceID
                 )
                 _ = try self.recorder.start(inputDeviceID: effectiveInputDeviceID)
-                if Task.isCancelled || !self.isCurrentDictationSession(sessionGeneration) {
+                if Task.isCancelled {
                     _ = self.recorder.stop()
                     self.recorder.setAudioLevelHandler(nil)
                 } else {
-                    self.recordingDidStart(sessionGeneration: sessionGeneration)
+                    self.recordingDidStart()
                 }
             } catch {
-                guard self.isCurrentDictationSession(sessionGeneration) else { return }
                 self.isStartingDictation = false
                 self.debugLog.setError(error)
                 self.activity = .error(error.localizedDescription)
@@ -290,8 +276,7 @@ final class AppViewModel: ObservableObject {
         startTask?.cancel()
         startTask = nil
 
-        if let liveRecognizer {
-            let sessionGeneration = dictationSessionGeneration
+        if let liveRecognizer = recognizer as? any LiveSpeechRecognizing {
             guard activity == .recording else {
                 if activity == .typing { cancelCurrentTypingAndRecognition() }
                 return
@@ -315,7 +300,7 @@ final class AppViewModel: ObservableObject {
                         after: activeRolloverTask,
                         using: liveRecognizer
                     )
-                    guard !Task.isCancelled, self.isCurrentDictationSession(sessionGeneration) else { return }
+                    guard !Task.isCancelled else { return }
                     self.finishLiveTranscription(recognized)
                 } catch is CancellationError {
                     if self.activity == .transcribing { self.activity = .idle }
@@ -329,20 +314,8 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        guard activity == .recording else {
+        guard activity == .recording, let recordingURL = recorder.stop() else {
             if activity == .typing { cancelCurrentTypingAndRecognition() }
-            return
-        }
-
-        let recordingURL: URL
-        do {
-            guard let stoppedURL = try recorder.stopRecording() else { return }
-            recordingURL = stoppedURL
-        } catch {
-            recorder.setAudioLevelHandler(nil)
-            resetLiveAudioLevels()
-            debugLog.setError(error)
-            activity = .error(error.localizedDescription)
             return
         }
 
@@ -371,20 +344,17 @@ final class AppViewModel: ObservableObject {
 
     func cancelCurrentOperation() {
         isStartingDictation = false
-        dictationSessionGeneration &+= 1
         startTask?.cancel()
         startTask = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
-        modelInstallationTask?.cancel()
-        modelInstallationTask = nil
         pauseRolloverTask?.cancel()
         pauseRolloverTask = nil
         pausedSegmentTypingBatchID = nil
         defersNextSegmentTyping = false
         pendingLivePause = false
-        if let liveRecognizer {
-            beginLiveCancellation(using: liveRecognizer)
+        if let liveRecognizer = recognizer as? any LiveSpeechRecognizing {
+            Task { await liveRecognizer.cancelLiveTranscription() }
         } else if activity == .recording {
             _ = recorder.stop()
             recorder.setAudioLevelHandler(nil)
@@ -420,13 +390,9 @@ final class AppViewModel: ObservableObject {
         let model = settings.selectedModel
         modelInstallationProgress = 0
         modelInstallationStatus = "Downloading \(model.displayName)…"
-        modelInstallationTask?.cancel()
-        modelInstallationTask = Task { [weak self] in
+        Task { [weak self] in
             guard let self else { return }
-            defer {
-                self.modelInstallationTask = nil
-                self.restartShortcutMonitor()
-            }
+            defer { self.restartShortcutMonitor() }
             do {
                 try await self.recognizer.install(model: model) { [weak self] progress in
                     Task { @MainActor [weak self] in
@@ -437,12 +403,10 @@ final class AppViewModel: ObservableObject {
                             : "Preparing \(model.displayName)…"
                     }
                 }
-                guard !Task.isCancelled else { return }
                 self.modelInstallationProgress = 1
                 self.modelInstallationStatus = "\(model.displayName) is ready"
                 self.activity = .idle
             } catch {
-                guard !Task.isCancelled else { return }
                 self.debugLog.setError(error)
                 self.modelInstallationProgress = nil
                 self.modelInstallationStatus = nil
@@ -464,7 +428,6 @@ final class AppViewModel: ObservableObject {
 
     private func cancelCurrentTypingAndRecognition() {
         let shouldCancelLiveCapture = activity == .recording || activity == .transcribing
-        dictationSessionGeneration &+= 1
         typingEngine.cancel()
         typingBatchID = nil
         transcriptionTask?.cancel()
@@ -474,9 +437,9 @@ final class AppViewModel: ObservableObject {
         pausedSegmentTypingBatchID = nil
         defersNextSegmentTyping = false
         pendingLivePause = false
-        if let liveRecognizer,
+        if let liveRecognizer = recognizer as? any LiveSpeechRecognizing,
            shouldCancelLiveCapture {
-            beginLiveCancellation(using: liveRecognizer)
+            Task { await liveRecognizer.cancelLiveTranscription() }
         } else if activity == .recording {
             _ = recorder.stop()
             recorder.setAudioLevelHandler(nil)
@@ -537,22 +500,22 @@ final class AppViewModel: ObservableObject {
         appendLiveText(to: stableText)
     }
 
-    private func receiveLivePartial(_ transcription: String, sessionGeneration: Int) {
-        guard isCurrentDictationSession(sessionGeneration), activity == .recording, !defersNextSegmentTyping else { return }
+    private func receiveLivePartial(_ transcription: String) {
+        guard activity == .recording, !defersNextSegmentTyping else { return }
         handleLiveHypothesis(transcription)
     }
 
     /// A pause ends one dictation segment without changing the listening state. The recognizer
     /// starts capturing the next segment before this task decodes the prior one, while live
     /// output for that new segment waits until the prior segment's final text is fully typed.
-    private func handleLivePause(sessionGeneration: Int) {
-        guard isCurrentDictationSession(sessionGeneration), activity == .recording else { return }
+    private func handleLivePause() {
+        guard activity == .recording else { return }
         guard !defersNextSegmentTyping else {
             pendingLivePause = true
             return
         }
         guard pauseRolloverTask == nil,
-              let liveRecognizer
+              let liveRecognizer = recognizer as? any LiveSpeechRecognizing
         else {
             return
         }
@@ -561,21 +524,18 @@ final class AppViewModel: ObservableObject {
         pauseRolloverTask = Task { [weak self] in
             guard let self else { return }
             do {
-                    let recognized = try await liveRecognizer.rolloverLiveTranscription(
-                        onPartialTranscription: { [weak self] transcription in
-                            DispatchQueue.main.async {
-                                self?.receiveLivePartial(transcription, sessionGeneration: sessionGeneration)
-                            }
-                        },
-                        onPauseDetected: { [weak self] in
-                            DispatchQueue.main.async { self?.handleLivePause(sessionGeneration: sessionGeneration) }
-                        }
-                    )
+                let recognized = try await liveRecognizer.rolloverLiveTranscription(
+                    onPartialTranscription: { [weak self] transcription in
+                        DispatchQueue.main.async { self?.receiveLivePartial(transcription) }
+                    },
+                    onPauseDetected: { [weak self] in
+                        DispatchQueue.main.async { self?.handleLivePause() }
+                    }
+                )
                 // An explicit stop can change the activity to `.transcribing` while this pause
                 // rollover decodes. Keep its completed segment: the stop task waits for
                 // us before it finalizes the successor capture.
                 guard !Task.isCancelled,
-                      self.isCurrentDictationSession(sessionGeneration),
                       self.activity == .recording || self.activity == .transcribing
                 else {
                     return
@@ -592,7 +552,7 @@ final class AppViewModel: ObservableObject {
                 // successor as well; otherwise the menu reports an error while the microphone
                 // continues recording in the background.
                 await liveRecognizer.cancelLiveTranscription()
-                guard !Task.isCancelled, self.isCurrentDictationSession(sessionGeneration) else { return }
+                guard !Task.isCancelled else { return }
                 self.debugLog.setError(error)
                 self.activity = .error(error.localizedDescription)
             }
@@ -608,7 +568,6 @@ final class AppViewModel: ObservableObject {
             finishReviewTranscription(combineReviewSegments(with: recognized))
             return
         }
-        guard ensureOriginalTargetStillActiveForLiveTyping() else { return }
         let prepared = TranscriptionTextNormalizer.prepare(
             recognized,
             autoCapitalizeFirstSentence: settings.autoCapitalizeFirstSentence,
@@ -642,7 +601,6 @@ final class AppViewModel: ObservableObject {
             resumeNextSegmentTyping()
             return
         }
-        guard ensureOriginalTargetStillActiveForLiveTyping() else { return }
 
         let prepared = TranscriptionTextNormalizer.prepare(
             recognized,
@@ -672,12 +630,11 @@ final class AppViewModel: ObservableObject {
         pendingLivePause = false
         // The recognizer reported a pause while the prior segment was still being typed.
         // Start its rollover now that the next segment is allowed to make progress.
-        handleLivePause(sessionGeneration: dictationSessionGeneration)
+        handleLivePause()
     }
 
     private func appendLiveText(to stableText: String) {
         guard !stableText.isEmpty else { return }
-        guard ensureOriginalTargetStillActiveForLiveTyping() else { return }
 
         let edit: String
         if liveTypedText.isEmpty {
@@ -888,8 +845,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func recordingDidStart(sessionGeneration: Int) {
-        guard isCurrentDictationSession(sessionGeneration) else { return }
+    private func recordingDidStart() {
         isStartingDictation = false
         activity = .recording
         startSound?.play()
@@ -897,36 +853,6 @@ final class AppViewModel: ObservableObject {
             stopHoldDictationWhenRecordingStarts = false
             stopAndTranscribe()
         }
-    }
-
-    private func isCurrentDictationSession(_ sessionGeneration: Int) -> Bool {
-        dictationSessionGeneration == sessionGeneration
-    }
-
-    private func beginLiveCancellation(using liveRecognizer: any LiveSpeechRecognizing) {
-        let priorCancellation = liveCancellationTask
-        liveCancellationTask = Task {
-            await priorCancellation?.value
-            await liveRecognizer.cancelLiveTranscription()
-        }
-    }
-
-    private func ensureOriginalTargetStillActiveForLiveTyping() -> Bool {
-        guard !isReviewBeforeTyping, let targetApplication = dictationTargetApplication else { return true }
-        guard !targetApplication.isTerminated, targetApplication.isActive else {
-            let appName = targetApplication.localizedName ?? "the original app"
-            let message = "Stopped dictation because focus moved away from \(appName)."
-            beginLiveCancellationIfAvailable()
-            debugLog.setError(NSError(domain: "WhisperKeys", code: 2, userInfo: [NSLocalizedDescriptionKey: message]))
-            activity = .error(message)
-            return false
-        }
-        return true
-    }
-
-    private func beginLiveCancellationIfAvailable() {
-        guard let liveRecognizer else { return }
-        beginLiveCancellation(using: liveRecognizer)
     }
 
 }

@@ -132,10 +132,6 @@ final class AudioRecorder {
     }
 
     func stop() -> URL? {
-        try? stopRecording()
-    }
-
-    func stopRecording() throws -> URL? {
         recordingOperationLock.lock()
         defer { recordingOperationLock.unlock() }
 
@@ -155,9 +151,9 @@ final class AudioRecorder {
         recordingWriteError = nil
         recordingStateLock.unlock()
 
-        if let writeError, let url {
+        if writeError != nil, let url {
             try? FileManager.default.removeItem(at: url)
-            throw writeError
+            return nil
         }
         return url
     }
