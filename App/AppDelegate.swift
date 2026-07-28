@@ -5,6 +5,8 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    static private(set) var shared: AppDelegate?
+
     private var dockVisibilityObservation: AnyCancellable?
     private var appearanceObservation: AnyCancellable?
     private var activityObservation: AnyCancellable?
@@ -23,10 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     override init() {
         super.init()
+        Self.shared = self
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setDockVisibility(UserDefaults.standard.bool(forKey: "showInDock"))
+        if let viewModel = AppRuntime.viewModel {
+            configure(viewModel: viewModel)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -184,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Gives the non-activating review panel text focus while retaining the target app's Space.
     static func editReviewTranscription() {
-        (NSApp.delegate as? AppDelegate)?.focusReviewEditor()
+        shared?.focusReviewEditor()
     }
 
     private func focusReviewEditor() {
@@ -307,11 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     static func presentOnboarding() {
-        (NSApp.delegate as? AppDelegate)?.presentOnboardingIfNeeded()
+        shared?.presentOnboardingIfNeeded()
     }
 
     static func presentSettings() {
-        (NSApp.delegate as? AppDelegate)?.presentSettingsWindow()
+        shared?.presentSettingsWindow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -513,6 +519,17 @@ private struct OnboardingMenuBarTip: View {
             return "Double-press \(settings.shortcutConfiguration.displayName) to start WhisperKeys. Double-press it again to end transcription."
         case .hold:
             return "Hold \(settings.shortcutConfiguration.displayName) to dictate, then release it to end transcription."
+        }
+    }
+}
+
+@MainActor
+enum AppRuntime {
+    static var viewModel: AppViewModel? {
+        didSet {
+            if let viewModel {
+                AppDelegate.shared?.configure(viewModel: viewModel)
+            }
         }
     }
 }
