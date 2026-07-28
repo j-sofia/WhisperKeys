@@ -21,7 +21,6 @@ final class AppViewModel: ObservableObject {
     private let recognizer: SpeechRecognizing
     private let typingEngine: TypingEngine
     private let shortcutMonitor: GlobalShortcutMonitor
-    private let inputDevicePolicy: CoreAudioInputDevicePolicy
     private let requestMicrophonePermission: () async -> Bool
     private let accessibilityPermissionState: () -> PermissionState
     private let frontmostApplication: () -> NSRunningApplication?
@@ -63,7 +62,6 @@ final class AppViewModel: ObservableObject {
         self.recognizer = WhisperKitSpeechRecognizer(modelStore: modelStore)
         self.typingEngine = TypingEngine()
         self.shortcutMonitor = GlobalShortcutMonitor()
-        self.inputDevicePolicy = CoreAudioInputDevicePolicy()
         self.debugLog = DebugLogStore()
         self.modelStore = modelStore
         self.requestMicrophonePermission = { [permissions] in
@@ -87,7 +85,6 @@ final class AppViewModel: ObservableObject {
         shortcutMonitor: GlobalShortcutMonitor,
         debugLog: DebugLogStore,
         modelStore: ModelStore,
-        inputDevicePolicy: CoreAudioInputDevicePolicy = CoreAudioInputDevicePolicy(),
         requestMicrophonePermission: (() async -> Bool)? = nil,
         accessibilityPermissionState: (() -> PermissionState)? = nil,
         frontmostApplication: @escaping () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication },
@@ -101,7 +98,6 @@ final class AppViewModel: ObservableObject {
         self.recognizer = recognizer
         self.typingEngine = typingEngine
         self.shortcutMonitor = shortcutMonitor
-        self.inputDevicePolicy = inputDevicePolicy
         self.debugLog = debugLog
         self.modelStore = modelStore
         self.requestMicrophonePermission = requestMicrophonePermission ?? { [permissions] in
@@ -212,10 +208,7 @@ final class AppViewModel: ObservableObject {
             if let liveRecognizer = self.recognizer as? any LiveSpeechRecognizing {
                 do {
                     self.resetLiveTypingState()
-                    let effectiveInputDeviceID = self.inputDevicePolicy.effectiveInputDeviceID(
-                        for: self.settings.inputDeviceID
-                    )
-                    await liveRecognizer.setInputDeviceID(effectiveInputDeviceID)
+                    await liveRecognizer.setInputDeviceID(self.settings.inputDeviceID)
                     await liveRecognizer.setLiveAudioLevelHandler { [weak self] level in
                         DispatchQueue.main.async {
                             self?.receiveLiveAudioLevel(level)
@@ -251,10 +244,7 @@ final class AppViewModel: ObservableObject {
                         self?.receiveLiveAudioLevel(level)
                     }
                 }
-                let effectiveInputDeviceID = self.inputDevicePolicy.effectiveInputDeviceID(
-                    for: self.settings.inputDeviceID
-                )
-                _ = try self.recorder.start(inputDeviceID: effectiveInputDeviceID)
+                _ = try self.recorder.start(inputDeviceID: self.settings.inputDeviceID)
                 if Task.isCancelled {
                     _ = self.recorder.stop()
                     self.recorder.setAudioLevelHandler(nil)

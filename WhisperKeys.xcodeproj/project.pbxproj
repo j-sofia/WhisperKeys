@@ -33,8 +33,6 @@
 		B025 /* RollingLiveHypothesis.swift in Sources */ = {isa = PBXBuildFile; fileRef = A128 /* RollingLiveHypothesis.swift */; };
 		B026 /* LiveTranscriptReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A129 /* LiveTranscriptReconciler.swift */; };
 		B027 /* ModelSelectionCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130 /* ModelSelectionCards.swift */; };
-		B028 /* CoreAudioInputDevicePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A131 /* CoreAudioInputDevicePolicy.swift */; };
-		B028 /* CoreAudioInputDevicePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A131 /* CoreAudioInputDevicePolicy.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,8 +65,6 @@
 		A128 /* RollingLiveHypothesis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RollingLiveHypothesis.swift; sourceTree = "<group>"; };
 		A129 /* LiveTranscriptReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTranscriptReconciler.swift; sourceTree = "<group>"; };
 		A130 /* ModelSelectionCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSelectionCards.swift; sourceTree = "<group>"; };
-		A131 /* CoreAudioInputDevicePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreAudioInputDevicePolicy.swift; sourceTree = "<group>"; };
-		A131 /* CoreAudioInputDevicePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreAudioInputDevicePolicy.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -143,11 +139,9 @@
 			isa = PBXGroup;
 			children = (
 				A107 /* AudioRecorder.swift */,
-				A131 /* CoreAudioInputDevicePolicy.swift */,
 				A108 /* ModelStore.swift */,
 				A109 /* SpeechRecognizing.swift */,
 				A110 /* WhisperKitSpeechRecognizer.swift */,
-				A131 /* CoreAudioInputDevicePolicy.swift */,
 				A128 /* RollingLiveHypothesis.swift */,
 			);
 			path = Speech;
@@ -293,7 +287,6 @@
 				B008 /* ModelStore.swift in Sources */,
 				B009 /* SpeechRecognizing.swift in Sources */,
 				B010 /* WhisperKitSpeechRecognizer.swift in Sources */,
-				B028 /* CoreAudioInputDevicePolicy.swift in Sources */,
 				B025 /* RollingLiveHypothesis.swift in Sources */,
 				B011 /* PermissionManager.swift in Sources */,
 				B012 /* KeyboardMapper.swift in Sources */,
@@ -306,7 +299,6 @@
 				B019 /* SettingsView.swift in Sources */,
 				B024 /* OnboardingView.swift in Sources */,
 				B027 /* ModelSelectionCards.swift in Sources */,
-				B028 /* CoreAudioInputDevicePolicy.swift in Sources */,
 				B022 /* TranscriptionTextNormalizer.swift in Sources */,
 				B026 /* LiveTranscriptReconciler.swift in Sources */,
 			);

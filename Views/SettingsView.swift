@@ -68,7 +68,7 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
-                    Text("System Default follows macOS Sound settings, except if the default input is Bluetooth or Bluetooth LE, WhisperKeys uses the built-in Mac microphone when available to keep AirPods playback high quality. A selected device is always preserved for new dictations until you change it.")
+                    Text("System Default follows macOS Sound settings. A selected device is used for every new dictation until you change it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
